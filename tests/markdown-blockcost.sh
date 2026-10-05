@@ -7,14 +7,14 @@ cd "$(dirname "$0")/.." || exit 1
 kinds="run heading table list quote fence remote image"
 # The parts the probe can name (foreignParts in tests/markdown-blockcost.qml); any other name in a report is refused.
 known_parts='Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph'
-# Object counts of one block, measured on the shipped delegate in this fixture: the remote box's dashes follow the pane width.
+# Object counts of one block, measured on the shipped delegate in this fixture: the remote box draws its dashes as one Shape, whatever the pane width.
 limit_for() {
     case $1 in
         run|heading|fence) echo 12 ;;
         table) echo 38 ;;
         list) echo 23 ;;
         quote) echo 14 ;;
-        remote) echo 322 ;;
+        remote) echo 18 ;;
         image) echo 11 ;;
     esac
 }
@@ -26,7 +26,7 @@ forbidden_for() {
         list) echo 'Rectangle|Image|MarkdownFigure|Glyph' ;;
         quote) echo 'Repeater|Column|Image|MarkdownFigure|TextMetrics|Glyph' ;;
         fence) echo 'Repeater|Column|Row|Image|MarkdownFigure|TextMetrics|Glyph' ;;
-        remote) echo 'Image|MarkdownFigure|TextMetrics' ;;
+        remote) echo 'Repeater|Rectangle|Image|MarkdownFigure|TextMetrics' ;;
         image) echo 'Repeater|Column|Row|Rectangle|MarkdownFigure|TextMetrics|Glyph' ;;
     esac
 }

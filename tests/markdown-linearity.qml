@@ -106,6 +106,7 @@ QtObject {
         const list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 };
         function wired(r) {
             r.dropParse = () => drop(r);
+            r.pointFile = () => {}; // quicklook-firstframe judges the pointing, the path handler only needs it callable
             r.parseNow = (text, dir, chrome, ink) => landing(r, Markdown, text, dir, chrome, ink);
             r.restoreScroll = () => restore(r, list);
             r.rememberScroll = () => remember(r, list);

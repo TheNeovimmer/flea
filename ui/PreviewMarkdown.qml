@@ -20,8 +20,10 @@ Item {
     property bool truncate: false
     readonly property bool tooLarge: root.size > root.maxBytes
     property bool readFailed: false
-    // Quick Look only: a document under workerThreshold reads on the open itself, so the card and its blocks share a frame.
-    property bool blockSmall: false
+    // Quick Look only: the one file whose first read may block the key (a page-cache read beats a lost frame), named by the open.
+    property string blockPath: ""
+    // Reads that blocked the key for the file blockPath named, so a suite tells them from an async read.
+    property int blockedReads: 0
     // Quick Look only: a small document's blocks are taken from, and kept in, the one parsed entry a resting cursor prepares.
     property bool shareParse: false
     // Parses a request took from the shared entry instead of running, so a suite can tell a reuse from a parse.
@@ -97,6 +99,8 @@ Item {
     readonly property bool blank: root.tooLarge
         || (root.active && !root.readFailed && file.loaded && root.rawText.length === 0)
 
+    // What the Source text holds, so a suite sees that Rendered lays none out.
+    readonly property int sourceChars: sourceText.text.length
     readonly property Item bodyItem: body
     // The offset the wheel moved, in whichever view shows, for Quick Look's IPC.
     readonly property real scrollY: root.view === Markdown.SOURCE ? sourceFlick.contentY : body.contentY
@@ -140,26 +144,43 @@ Item {
 
     FileView {
         id: file
-        path: (root.active && !root.tooLarge) ? root.path : ""
         printErrors: false
-        // A page-cache read of 64 KiB costs less than the frame the async hop would lose.
-        blockLoading: root.blockSmall && root.size <= root.workerThreshold
         // The one watcher is on the shown file; a path change re-points it, so an old file never reloads here.
         watchChanges: true
         // The first event opens the window and the rest land inside it: a restart would starve a file written without pause.
         onFileChanged: if (!reloadCoalesce.running) reloadCoalesce.start()
         onLoaded: {
+            // Only the first read of a path blocks; a reload after a save never does, whatever the file grew to.
+            file.blockLoading = false
             root.loadRuns++
             // A save that unlinks and recreates the file can fail one reload; the next good load clears it.
             root.readFailed = false
             root.askParse()
         }
         onLoadFailed: {
+            file.blockLoading = false
             root.keepScroll = false
             root.readFailed = true
         }
         onPathChanged: root.readFailed = false
     }
+
+    // One step moves the path and the blocking flag together, since a read inside the path change takes the flag as it stands then.
+    function pointFile() {
+        var want = (root.active && !root.tooLarge) ? root.path : ""
+        // A pane built before the path moved sees the last file's path, which an open that named its file must not read first.
+        if ((want === file.path) || (want !== "" && root.blockPath !== "" && want !== root.blockPath))
+            return
+        file.blockLoading = want !== "" && want === root.blockPath
+        if (file.blockLoading) {
+            root.blockedReads++
+            // A view that holds another file takes a new path asynchronously, so the blocking read starts from none.
+            file.path = ""
+        }
+        file.path = want
+    }
+    Component.onCompleted: root.pointFile()
+    onTooLargeChanged: root.pointFile()
 
     // One reload per save: an editor's truncate, write and rename raise events within a few ms, and 50 ms is under what a reader notices.
     readonly property int reloadCoalesceMs: 50
@@ -384,7 +405,10 @@ Item {
     }
 
     onRawTextChanged: root.askParse()
-    onActiveChanged: root.askParse()
+    onActiveChanged: {
+        root.pointFile()
+        root.askParse()
+    }
     onPathChanged: {
         // A save's pending reload belongs to the old file.
         reloadCoalesce.stop()
@@ -394,6 +418,7 @@ Item {
         root.parsedOffThread = false
         // The new file's load asks; asking now would parse the old file's text under the new path.
         root.dropParse()
+        root.pointFile()
     }
 
     // Warming both view heights prevents a contentHeight binding loop on Rendered/Source changes.
@@ -429,7 +454,8 @@ Item {
             x: root.insetX
             y: root.insetY
             width: sourceFlick.width - 2 * root.insetX
-            text: root.rawText
+            // Only Source lays the text out: an unseen Source over a 1 MiB document held the UI thread for 100 ms.
+            text: root.view === Markdown.SOURCE ? root.rawText : ""
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
             color: Theme.color.foreground

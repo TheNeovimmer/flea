@@ -5,6 +5,7 @@ import "js/Facts.js" as Facts
 import "js/Kinds.js" as Kinds
 import "js/Thumbs.js" as Thumbs
 import "js/ExtThumbs.js" as ExtThumbs
+import "js/MarkdownPrepared.js" as Prepared
 import "js/Motion.js" as Motion
 import "js/PreviewSettle.js" as PreviewSettle
 import "js/PreviewSwap.js" as PreviewSwap
@@ -33,6 +34,8 @@ Item {
     readonly property bool isMarkdown: root.kind === "text" && Kinds.isMarkdown(root.path)
     // r flips the open Markdown Quick Look to Source; close() forgets it, and a move to another file keeps it.
     property bool markdownSource: false
+    // The file whose first Markdown read may block the key, decided from its listing row before the path moves; "" when none may.
+    property string inlineMarkdownPath: ""
     // Tab put the keyboard on the Markdown bar's close mark; a move off Markdown or a close lets it go.
     property bool markdownCloseFocus: false
     readonly property bool markdownCloseFocused: root.active && root.isMarkdown && root.markdownCloseFocus
@@ -257,6 +260,7 @@ Item {
         root.kind = ""
         root.markdownSource = false
         root.markdownCloseFocus = false
+        root.inlineMarkdownPath = ""
         mediaLoader.source = ""
         pdfLoader.source = ""
         imageLoader.source = ""
@@ -283,6 +287,9 @@ Item {
     }
 
     function show(newPath, newIcon, newSize, newKind, newThumb, newRow) {
+        var row = root.pane ? root.pane.rowFor(newRow) : null
+        var named = row && root.pane.join(root.pane.path, row.n) === newPath
+        root.inlineMarkdownPath = named && Prepared.readsInline(row, root.pane.storageClass) ? newPath : ""
         root.kind = Kinds.quickLookKind(newIcon, newPath)
         // A pane of another kind goes before the path moves, or it tries to open a file it cannot draw: an image
         // pane handed a video logged "Unsupported image format" on every move from a picture to a clip.
@@ -501,8 +508,7 @@ Item {
                 active: root.isMarkdown
                 source: "MarkdownPane.qml"
                 onLoaded: {
-                    // Local storage only: a share or a phone never blocks the window on a read.
-                    item.blockSmall = Qt.binding(function () { return root.pane ? !ExtThumbs.present(root.pane.storageClass) : false })
+                    item.blockPath = Qt.binding(function () { return root.inlineMarkdownPath })
                     item.path = Qt.binding(function () { return root.path })
                     item.size = Qt.binding(function () { return root.size })
                     item.view = Qt.binding(function () { return root.markdownSource ? "source" : "rendered" })

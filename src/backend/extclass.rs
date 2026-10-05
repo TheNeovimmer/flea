@@ -281,6 +281,24 @@ mod tests {
         assert_eq!(crate::backend::fsinfo::statfs_calls(), 0, "classify_entry itself decides on the fstype");
     }
 
+    // Quick Look reads a Markdown file ahead and inline only on class "": every kernel and FUSE share below must not get it.
+    #[test]
+    fn kernel_cifs_nfs_and_fuse_shares_take_the_network_class_that_keeps_quick_look_from_reading_them() {
+        let body = "1 0 0:30 / / rw - ext4 /dev/a rw\n\
+            31 1 0:27 / /mnt/cifs rw - cifs //nas/media rw\n\
+            32 1 0:28 / /mnt/nfs rw - nfs4 nas:/export rw\n\
+            33 1 0:29 / /mnt/smb rw - smb3 //nas/media rw\n\
+            34 1 0:40 / /mnt/sshfs rw - fuse.sshfs me@nas:/ rw\n\
+            35 1 0:41 / /mnt/rclone rw - fuse.rclone remote: rw\n\
+            36 1 0:42 / /mnt/s3 rw - fuse.s3fs bucket rw\n\
+            37 1 0:43 / /mnt/local-fuse rw - fuse.mergerfs a:b rw\n";
+        for mount in ["cifs", "nfs", "smb", "sshfs", "rclone", "s3"] {
+            let path = format!("/mnt/{}/notes/README.md", mount);
+            assert_eq!(classify_in(Path::new(&path), body), "network", "{} reaches the class Quick Look refuses", mount);
+        }
+        assert_eq!(classify_in(Path::new("/mnt/local-fuse/README.md"), body), "", "an unlisted FUSE type is local, as netfs.rs pins");
+    }
+
     #[test]
     fn a_network_fstype_classifies_without_a_statfs() {
         crate::backend::fsinfo::test_reset_statfs();

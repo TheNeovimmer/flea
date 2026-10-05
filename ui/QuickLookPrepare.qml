@@ -1,12 +1,9 @@
 import QtQuick
 import Quickshell.Io
-import "js/Kinds.js" as Kinds
-import "js/ExtThumbs.js" as ExtThumbs
 import "js/Markdown.js" as Markdown
 import "js/MarkdownPrepared.js" as Prepared
 
-// A cursor resting on a small local Markdown file reads and parses it into the one entry Quick Look takes, so Space only shows it.
-// A moving cursor only restarts the timer; no figure is asked and no other file is read.
+// A rested cursor on a small regular local Markdown file reads it capped and parses it in the worker into Quick Look's entry.
 Item {
     id: root
 
@@ -15,9 +12,15 @@ Item {
     property bool resting: true
     // The rest the preview column's own settle waits, so a sweep reads nothing.
     property int restMs: 120
-    // What a suite reads: files read at rest, and the file whose parse the entry last took.
+    // What a suite reads: files read at rest, the bytes the last read returned, parses the worker answered, and the file the entry last took.
     property int reads: 0
+    property int readBytes: 0
+    property int workerAnswers: 0
     property string preparedPath: ""
+    // A cursor move bumps seq, so a read or a parse that answers after it is dropped.
+    property int seq: 0
+    // The one request waiting on the worker: its seq, path, text and the inputs the parse took.
+    property var asked: null
 
     Timer {
         id: rest
@@ -27,43 +30,89 @@ Item {
 
     Connections {
         target: root.pane
-        function onCursorIndexChanged() { rest.restart() }
-        function onRowsChanged() { rest.restart() }
-        function onListInFlightChanged() { rest.restart() }
+        function onCursorIndexChanged() { root.moved() }
+        function onRowsChanged() { root.moved() }
+        function onListInFlightChanged() { root.moved() }
     }
 
-    // Blocking by design: at most 64 KiB from local storage, read once the cursor has rested.
-    FileView {
-        id: file
-        printErrors: false
-        blockLoading: true
+    function moved() {
+        root.seq++
+        rest.restart()
+    }
+
+    // head caps the bytes actually read, whatever the file grew to since its row was listed.
+    Component {
+        id: readerComponent
+        Process {
+            id: proc
+            property int seq: 0
+            property string path: ""
+            command: ["head", "-c", String(Prepared.MAX_BYTES + 1), "--", proc.path]
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    root.landed(proc.seq, proc.path, this.text, this.data.byteLength)
+                    proc.destroy()
+                }
+            }
+        }
+    }
+
+    Loader {
+        id: parser
+        active: false
+        sourceComponent: WorkerScript {
+            source: "MarkdownWorker.js"
+            onMessage: function (messageObject) { root.answered(messageObject) }
+        }
     }
 
     function prepare() {
         var pane = root.pane
-        if (!root.resting || !pane || pane.listInFlight || ExtThumbs.present(pane.storageClass))
+        if (!root.resting || !pane || pane.listInFlight)
             return
         var row = pane.rowFor(pane.cursorIndex)
-        if (!row || row.d || row.s > Prepared.MAX_BYTES || !Kinds.isMarkdown(row.n))
+        if (!Prepared.readsInline(row, pane.storageClass))
             return
-        var path = pane.join(pane.path, row.n)
-        file.path = path
         root.reads++
-        var text = file.text()
-        file.path = ""
+        var request = readerComponent.createObject(root, { seq: root.seq, path: pane.join(pane.path, row.n) })
+        request.running = true
+    }
+
+    // The read landed: a stale or oversized answer is dropped, a held one is kept, and anything else goes to the worker.
+    function landed(seq, path, text, bytes) {
+        root.readBytes = bytes
+        if (seq !== root.seq || bytes > Prepared.MAX_BYTES || text.length === 0)
+            return
         var dir = Markdown.dirOf(path)
         var chrome = Prepared.hexOf(Theme.color.background)
         var ink = Prepared.hexOf(Theme.color.foreground)
-        if (text.length === 0 || text.length > Prepared.MAX_BYTES)
+        if (Prepared.take(path, text, dir, chrome, ink) !== null) {
+            root.preparedPath = path
             return
-        if (Prepared.take(path, text, dir, chrome, ink) === null) {
-            // A parse that throws is Quick Look's to report on Space, so nothing is kept here.
-            try {
-                Prepared.store(path, text, dir, chrome, ink, Markdown.blocks(text, dir, chrome, ink))
-            } catch (e) {
-                return
-            }
         }
-        root.preparedPath = path
+        root.asked = { seq: seq, path: path, text: text, dir: dir, chrome: chrome, ink: ink }
+        parser.active = true
+        parser.item.sendMessage({ seq: seq, source: text, dir: dir, chrome: chrome, ink: ink })
+    }
+
+    // The worker answered: the entry is stored only for the request still waiting and a cursor that has not moved.
+    function answered(reply) {
+        var a = root.asked
+        if (a === null || a.seq !== reply.seq)
+            return
+        root.asked = null
+        Qt.callLater(root.retire)
+        // A parse that throws is Quick Look's to report on Space, so nothing is kept here.
+        if (reply.seq !== root.seq || reply.error !== "")
+            return
+        Prepared.store(a.path, a.text, a.dir, a.chrome, a.ink, reply.blocks)
+        root.workerAnswers++
+        root.preparedPath = a.path
+    }
+
+    // The worker thread lives only while a parse waits.
+    function retire() {
+        if (root.asked === null)
+            parser.active = false
     }
 }

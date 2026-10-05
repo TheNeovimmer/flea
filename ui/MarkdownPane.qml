@@ -11,7 +11,7 @@ Item {
     property string view: "rendered"
     property int maxBytes: 1048576
     property bool truncate: false
-    property bool blockSmall: false
+    property string blockPath: ""
 
     // The keyboard is on the close mark; Quick Look's key handler owns the walk, as the PDF viewer's controls do.
     property bool closeFocused: false
@@ -126,7 +126,7 @@ Item {
         size: root.size
         maxBytes: root.maxBytes
         truncate: root.truncate
-        blockSmall: root.blockSmall
+        blockPath: root.blockPath
         shareParse: true
         codeSurface: Theme.color.background
     }

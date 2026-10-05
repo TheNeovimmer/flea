@@ -90,6 +90,8 @@ QtObject {
         root.restoreScroll = function () { restore(root, list) }
         root.rememberScroll = function () { remember(root, list) }
         root.askParse = function () {}
+        // File pointing belongs to quicklook-firstframe; the path handler only needs it callable here.
+        root.pointFile = function () {}
         root.path = "/doc/B.md"
         new Function("root", "reloadCoalesce", body(source, "    onPathChanged: {"))(root, { stop: function () {} })
         check(root.parseError === "" && root.status === "loading", "F41 unloaded path clears previous error")
@@ -293,8 +295,8 @@ QtObject {
     function readerGate(markdownSource, columnSource) {
         var callback = body(columnSource.slice(columnSource.indexOf("id: markdownLoader")), "onLoaded:")
         var tooLarge = expression(markdownSource, /readonly property bool tooLarge:([^\n]*)/)
-        // Sample input: FileView { id: file, then path: (root.active && !root.tooLarge) ? root.path : "" on its own line.
-        var readerPath = expression(body(markdownSource, "FileView {"), /\n\s*path:([^\n]*)/)
+        // Sample input: function pointFile() { then var want = (root.active && !root.tooLarge) ? root.path : "" on its own line.
+        var readerPath = expression(body(markdownSource, "function pointFile()"), /\n\s*var want =([^\n]*)/)
         var probe = Qt.createQmlObject('import QtQuick\nQtObject {\n'
             + 'id: item\nproperty var root: ({ path: "/remote/A.md", row: { s: ' + remoteRowBytes + ' }, visible: true, '
             + 'manualHold: false, rowState: "text", isMarkdownRow: true, textLimit: ' + remoteLimitBytes + ', truncateText: true })\n'
