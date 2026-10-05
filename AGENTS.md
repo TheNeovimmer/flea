@@ -4932,7 +4932,7 @@ them under quickjs-ng (the CI image has no node) and again under node where it e
 
 mermaid-r3 2026-10-04: every end mark draws under Qt. A flowchart start marker was a mirrored polygon under `orient="auto-start-reverse"`, which reversed it twice and left it under the node;
 it is now oriented `auto`, a class composition or aggregation diamond is referenced at its tip (`refX` 12), and a plain class `--` link draws no arrowhead.
-`tests/markdown-figures-render-arrows.qml` samples accent ink at both ends of the first edge of 12 link cases, from a real helper figure. A subgraph with an edge leaving it is laid
+`tests/markdown-figures-render-ends.qml` samples accent ink at both ends of the first edge of 12 link cases, from a real helper figure. A subgraph with an edge leaving it is laid
 out with the whole graph, as mermaid.js's dagre wrapper does (its docs example draws one, two and three in one row); a subgraph with none stays an ELK compound node. The
 flattened frames hug their members, the edges between them and their child frames, and the layout falls back to the nested one when a frame would take in a foreign node or cross a
 sibling (LR docs example, nested clusters with outside edges). A later bare mention keeps a node's first shape (`registerNode` guards it).
