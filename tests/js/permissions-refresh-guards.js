@@ -23,7 +23,9 @@ function flyoutClose(check, body) {
     var menu = {opened: true, forRail: false, forHeader: false, forLocked: false,
         refreshOwed: false, entries: [{action: "openWith", label: "Old"}], cursor: 0,
         openSubmenuRow: 0, submenuCursor: 0, submenuOpen: true,
-        buildEntries: function () { return [{action: "openWith", label: "New"}] }}
+        buildEntries: function () { return [{action: "openWith", label: "New"}] },
+        // The real menu's list setter, which only guards the card's fit while the rows build.
+        setEntries: function (next) { this.entries = next }}
     var refresh = new Function("root", "MenuRefresh", "menuRows", "subRows", "Qt", "scroll", body(source, "refreshProviderRows"))
     menu.refreshProviderRows = function () { refresh(menu, MenuRefresh, main, flyout, qt, {reveal: function () {}}) }
     menu.refreshProviderRows()

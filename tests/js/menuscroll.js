@@ -1,4 +1,5 @@
 .import "../../ui/js/MenuWheel.js" as Wheel
+.import "../../ui/js/MenuFit.js" as MenuFit
 
 // Menu wheel rule: notches accrue to one row per 120 angleDelta units, pixels and strokes fold by row height, no tail.
 function run(check) {
@@ -73,4 +74,10 @@ function run(check) {
     check("no travel is no step", Wheel.touchSteps(5, 0, 37).steps, 0)
     // A zero row height folds one-pixel rows, so the fold loop always ends.
     check("a zero row height falls back to one pixel rows", Wheel.touchSteps(0, -100, 0).steps, 100)
+
+    // The card's fit takes the widest row and counts each read, which ui/ContextMenu.qml's open pins per build.
+    var readsBefore = MenuFit.reads
+    check("the fit is the widest wanted width", MenuFit.widestWanted([{ wantedWidth: 120 }, { wantedWidth: 0 }, {}, { wantedWidth: 200 }]), 200)
+    check("an empty card fits nothing", MenuFit.widestWanted([]), 0)
+    check("each fit counts one read", MenuFit.reads - readsBefore, 2)
 }

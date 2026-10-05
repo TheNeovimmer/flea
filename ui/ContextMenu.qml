@@ -4,6 +4,7 @@ import "." as Flea
 import "js/Keymap.js" as Keymap
 import "js/LockedMenu.js" as LockedMenu
 import "js/Menu.js" as Menu
+import "js/MenuFit.js" as MenuFit
 import "js/MenuRefresh.js" as MenuRefresh
 
 // A plain overlay, not a QQC Popup: the one Controls import cost 10 ms of warm startup.
@@ -137,6 +138,10 @@ Item {
 
     // The row list this menu currently offers; a test reads this back through shell.qml's IPC.
     property var entries: []
+    // True while the rows of a new list are being built: the card's fit reads no row then, so it
+    // is not re-run once per row built and reads them once, when the list stands.
+    property bool rowsBuilding: false
+    function setEntries(next) { root.rowsBuilding = true; root.entries = next; root.rowsBuilding = false }
     property bool canTrash: true
     // False in a read-only folder, off the listing's own w flag; true until the pane knows better.
     property bool dirWritable: true
@@ -309,7 +314,7 @@ Item {
         var point = root.mapFromItem(null, scenePoint)
         root.placeX = point.x
         root.placeY = point.y
-        root.entries = root.buildEntries()
+        root.setEntries(root.buildEntries())
         root.openedIdentity = root.selectionIdentity
         root.loneFlyoutAction = ""
         scroll.contentY = 0
@@ -429,7 +434,7 @@ Item {
         // An answer that changed nothing drawn leaves every row standing: no model reset, no cursor move.
         if (MenuRefresh.unchanged(root.entries, next)) return
         var selection = MenuRefresh.refreshedCursor(root.entries, next, root.cursor, root.openSubmenuRow, root.submenuCursor)
-        root.entries = next
+        root.setEntries(next)
         root.cursor = selection.cursor
         root.openSubmenuRow = selection.submenuRow
         root.submenuCursor = selection.submenuCursor
@@ -499,17 +504,12 @@ Item {
     readonly property real fadeRowShare: 0.7
     readonly property real fadeReach: Math.round(Theme.rowHeight * root.fadeRowShare)
     // The widest row's wanted width in a card's column; a binding that calls it follows every row's own text.
-    function widestRow(column) {
-        var widest = 0
-        for (var i = 0; i < column.children.length; i++)
-            widest = Math.max(widest, column.children[i].wantedWidth || 0)
-        return widest
-    }
+    function widestRow(column) { return MenuFit.widestWanted(column.children) }
 
     Rectangle {
         id: frame
         // Theme.menuWidth, or the widest row's own width when a label and its hint need more, never past the work area.
-        width: Math.max(0, Math.min(root.workArea.width, Math.max(Theme.menuWidth, root.widestRow(rows))))
+        width: Math.max(0, Math.min(root.workArea.width, root.rowsBuilding ? Theme.menuWidth : Math.max(Theme.menuWidth, root.widestRow(rows))))
         onWidthChanged: if (root.opened) root.clampFrame()
         // The vertical inset keeps the first and last row's square highlight off the rounded corners.
         height: Math.max(0, Math.min(rows.implicitHeight + 2 * Theme.spacing.rowPaddingY,
