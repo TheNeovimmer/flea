@@ -16,6 +16,15 @@ QtObject {
     readonly property int holdAtPx: 100
     readonly property int holdSavedPx: 300
     readonly property int holdReaderPx: 40
+    // The by-block place: one built block and the view past its top edge.
+    readonly property int placeBlockIdx: 3
+    readonly property int placeBlockY: 1000
+    readonly property int placeBlockH: 200
+    readonly property int placeViewY: 1050
+    readonly property int placeOffsetPx: 50
+    readonly property int placeSmallPx: 800
+    readonly property int placeLastLen: 6
+    readonly property int placeBeginMode: 7
 
     function readSource(path) {
         var request = new XMLHttpRequest()
@@ -177,6 +186,68 @@ QtObject {
         parse(failing.root, { blocks: function () { throw new Error("probe parse fault") } }, "text", "/doc", "chrome", "ink")
         check(!failing.root.keepScroll && failing.root.blocksSet === 0 && !failing.root.settingBlocks
             && failing.root.parseError === "probe parse fault", "F50 a parse that throws takes no place and replaces no model")
+    }
+
+    // A stub list with one built block, running the shipped by-block place helpers.
+    function blockStub(source, contentH, listLen, withLast) {
+        var calls = []
+        var kids = [{ blockIndex: placeBlockIdx, y: placeBlockY, height: placeBlockH }]
+        if (withLast)
+            kids.push({ blockIndex: listLen - 1, y: placeBlockY + placeBlockH + placeOffsetPx, height: placeBlockH })
+        var list = { originY: 0, topMargin: endInsetPx, bottomMargin: endInsetPx, contentHeight: contentH, height: endViewPx, contentY: 0,
+            contentItem: { children: kids }, calls: calls, positionViewAtIndex: function (idx, mode) { calls.push([idx, mode]) } }
+        var root = { keepScroll: false, heldY: NaN, savedY: 0, savedIndex: -1, savedOffset: 0, samePlacePx: 1, blockList: [] }
+        for (var i = 0; i < listLen; i++) root.blockList.push("b" + i)
+        var topFn = new Function("root", "body", body(source, "function topBlockItem()"))
+        var blockFn = new Function("root", "body", "i", body(source, "function blockItem("))
+        var rememberFn = new Function("root", "body", body(source, "function rememberScroll()"))
+        var restoreFn = new Function("root", "body", "ListView", body(source, "function restoreScroll()"))
+        root.topBlockItem = function () { return topFn(root, list) }
+        root.blockItem = function (i) { return blockFn(root, list, i) }
+        root.rememberScroll = function () { rememberFn(root, list) }
+        root.restoreScroll = function (lv) { restoreFn(root, list, lv) }
+        return { root: root, list: list }
+    }
+
+    // The by-block place: remember saves the block, restore asks for it, an unbuilt end never clamps and a built end does.
+    function blockPlaceChecks(source) {
+        var begin = { Beginning: placeBeginMode }
+        var rem = blockStub(source, endContentPx, placeBlockIdx + 1, false)
+        rem.list.contentY = placeViewY
+        rem.root.rememberScroll()
+        check(rem.root.savedIndex === placeBlockIdx && rem.root.savedOffset === placeOffsetPx
+            && rem.root.savedY === placeViewY && rem.root.keepScroll && isNaN(rem.root.heldY), "F52 rememberScroll saves the built block and its offset")
+        var settled = blockStub(source, endContentPx, placeBlockIdx + 1, false)
+        settled.root.savedIndex = placeBlockIdx
+        settled.root.savedOffset = placeOffsetPx
+        settled.root.savedY = placeViewY
+        settled.root.keepScroll = true
+        settled.list.contentY = 0
+        settled.root.restoreScroll(begin)
+        check(settled.list.calls.length === 1 && settled.list.calls[0][0] === placeBlockIdx
+            && settled.list.calls[0][1] === placeBeginMode, "F52 restoreScroll asks for the saved block at the beginning")
+        check(settled.list.contentY === placeBlockY + placeOffsetPx && !settled.root.keepScroll && isNaN(settled.root.heldY),
+            "F52 restoreScroll lands at the block top plus the saved offset (got " + settled.list.contentY + ")")
+        var smallEnd = placeSmallPx - endViewPx + endInsetPx
+        var unbuilt = blockStub(source, placeSmallPx, placeLastLen, false)
+        unbuilt.root.savedIndex = placeBlockIdx
+        unbuilt.root.savedOffset = placeOffsetPx
+        unbuilt.root.savedY = placeViewY
+        unbuilt.root.keepScroll = true
+        unbuilt.list.contentY = 0
+        unbuilt.root.restoreScroll(begin)
+        check(unbuilt.list.contentY === placeBlockY + placeOffsetPx && !unbuilt.root.keepScroll && isNaN(unbuilt.root.heldY),
+            "F52 a place past an estimated end is not clamped while the last block is unbuilt (got " + unbuilt.list.contentY + ")")
+        var built = blockStub(source, placeSmallPx, placeLastLen, true)
+        built.root.savedIndex = placeBlockIdx
+        built.root.savedOffset = placeOffsetPx
+        built.root.savedY = placeViewY
+        built.root.keepScroll = true
+        built.list.contentY = 0
+        built.root.restoreScroll(begin)
+        check(built.list.calls.length === 1 && built.list.calls[0][0] === placeBlockIdx
+            && built.list.contentY === smallEnd && built.root.keepScroll && built.root.heldY === smallEnd,
+            "F52 a place past the end is clamped once the last block is built (got " + built.list.contentY + ")")
     }
 
     // The reader's place at the end of the list: a block above the end growing must not leave them short of it.
@@ -385,6 +456,7 @@ QtObject {
         var source = readSource("../ui/PreviewMarkdown.qml")
         stateChecks(source)
         holdChecks(source)
+        blockPlaceChecks(source)
         endChecks(source)
         reentryChecks(source)
         lazyChecks()

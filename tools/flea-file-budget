@@ -83,6 +83,7 @@ tests/columnsfolder.qml 399
 tests/quicklook-firstframe.qml 432
 tests/markdown-render.qml 793
 tests/markdown-linearity.qml 650
+tests/markdown-preview-state.qml 467
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
 tests/js/status.js 354
