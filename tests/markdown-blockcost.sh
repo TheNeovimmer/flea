@@ -4,18 +4,20 @@ set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
 cd "$(dirname "$0")/.." || exit 1
 
-kinds="run heading table list quote fence remote image"
+kinds="run heading table list quote fence remote image images"
 # The parts the probe can name (foreignParts in tests/markdown-blockcost.qml); any other name in a report is refused.
 known_parts='Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph'
 # Object counts of one block, measured on the shipped delegate in this fixture: the remote box's dashes follow the pane width.
+# Every kind counts the delegate's nine inert Components, one more than before the badge row got its own; the badge row follows its two pictures.
 limit_for() {
     case $1 in
-        run|heading|fence) echo 12 ;;
-        table) echo 38 ;;
-        list) echo 23 ;;
-        quote) echo 14 ;;
-        remote) echo 322 ;;
-        image) echo 11 ;;
+        run|heading|fence) echo 13 ;;
+        table) echo 39 ;;
+        list) echo 24 ;;
+        quote) echo 15 ;;
+        remote) echo 323 ;;
+        image) echo 14 ;;
+        images) echo 19 ;;
     esac
 }
 # Parts each kind never draws, as an extended regex over the report's foreign list.
@@ -28,6 +30,7 @@ forbidden_for() {
         fence) echo 'Repeater|Column|Row|Image|MarkdownFigure|TextMetrics|Glyph' ;;
         remote) echo 'Image|MarkdownFigure|TextMetrics' ;;
         image) echo 'Repeater|Column|Row|Rectangle|MarkdownFigure|TextMetrics|Glyph' ;;
+        images) echo 'Column|Row|Rectangle|MarkdownFigure|TextMetrics|Glyph' ;;
     esac
 }
 
@@ -152,6 +155,8 @@ var fenced = true;
 ![shot](https://cdn.example.com/shot.png)
 
 ![local](kinds.png)
+
+<p align="center"><a href="https://example.com/a"><img src="kinds.png" alt="a"></a> <img src="kinds.png" alt="b" width="40"></p>
 MD
 
 # Sample input: '    readonly property int watchdogMs: 50000'; qs gets a margin past it so a stuck load names itself.

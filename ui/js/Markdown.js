@@ -15,6 +15,13 @@
 var RENDERED = "rendered"
 var SOURCE = "source"
 
+// Deeper nesting than this shows the source behind one notice.
+var NESTING_LIMIT = Blocks.NESTING_LIMIT
+
+function deepNotice() {
+    return "Rendered preview skipped: nesting is deeper than " + NESTING_LIMIT + " levels. Showing the source."
+}
+
 function isView(value) {
     return value === RENDERED || value === SOURCE
 }

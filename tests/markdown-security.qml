@@ -105,6 +105,17 @@ ShellRoot {
             validationFailures.push("malformed drop tag kept its body")
         if (corpusText.indexOf("R9_KEEP_BODY") < 0 || corpusText.indexOf("R9_TAIL") < 0)
             validationFailures.push("HTML whitespace control body or tag tail was lost")
+        // An on* attribute and a javascript: target never reach the preview, while the text they wrapped still draws.
+        var inertText = corpusText.toLowerCase()
+        if (/\bon(click|mouseover|error)\s*=/.test(inertText) || inertText.indexOf("javascript:") >= 0)
+            validationFailures.push("an on* attribute or a javascript: target reached the preview")
+        // Each form carries its own token, so one surviving form cannot vouch for the others; an image block's own alt is not the sanitizer's.
+        var proseText = JSON.stringify(md.blockList.filter(function (b) { return b.type !== "image" }))
+        var wrappedTokens = ["R13CLICKTEXT", "R13ERRORTEXT", "R13JSTEXT"]
+        for (var w = 0; w < wrappedTokens.length; w++) {
+            if (proseText.indexOf(wrappedTokens[w]) < 0)
+                validationFailures.push("the text " + wrappedTokens[w] + " an on* attribute or a javascript: link wrapped was lost")
+        }
         var paths = ["file://" + dir + "/../x.png", dir + "/notes/../../x.png",
             "file://" + dir + "/%2e%2e/x.png", dir + "/notes/%2e%2e/%2e%2e/x.png"]
         for (var i = 0; i < paths.length; i++) {

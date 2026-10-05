@@ -3,6 +3,15 @@
 // Serialize the block reader's events; all container and code decisions belong to MdBlocks.
 .import "MdLeaf.js" as Leaf
 .import "MdRun.js" as Run
+.import "MdHtmlImage.js" as HtmlImage
+.import "MdHtmlBlock.js" as HtmlBlock
+
+// The importer joins an HTML block onto the paragraph above it, so a block-level raw tag after a blank line starts its own run.
+// Sample input: "Body.\n\n<div>x</div>" splits before the div; "<table>\n<tr>" keeps its rows together.
+var HTML_BLOCK_AFTER_BLANK = /\n[ \t]*\n+(?= {0,3}<(?:p|div|h[1-6]|hr|table|ul|ol|blockquote|pre)(?=[\s>\/]))/i
+
+// Sample input: "one<br />\n  two" collapses to "one<br />two"; a blank line after the break stays a paragraph break.
+var BREAK_SOFT_NEWLINE = /(<br \/>)[ \t]*\n(?![ \t]*\n)[ \t]*/g
 
 function visibleLines(lines, state) {
     var kept = []
@@ -29,10 +38,23 @@ function writer(state, dir, chrome, ink) {
         return Run.parseInline(text, dir, state.defs, state.numbers, chrome, ink, tokens,
             citations === false ? undefined : cited, literalPlain)
     }
+    function pushPiece(lines) {
+        // A soft break after a line break collapses, as in a browser, so the next line starts at the text column.
+        var pieces = inlineOf(HtmlBlock.separateBlocks(lines).join("\n")).replace(BREAK_SOFT_NEWLINE, "$1").split(HTML_BLOCK_AFTER_BLANK)
+        for (var p = 0; p < pieces.length; p++) {
+            if (pieces[p].trim().length > 0)
+                out.push({ type: "run", text: pieces[p] })
+        }
+    }
+    // An image inside an HTML block leaves it as an image block, since the importer draws no Markdown there.
     function pushRun(lines) {
-        var text = inlineOf(lines.join("\n"))
-        if (text.trim().length > 0)
-            out.push({ type: "run", text: text })
+        var parts = HtmlBlock.splitHtmlImages(lines, dir)
+        for (var p = 0; p < parts.length; p++) {
+            if (parts[p].block !== undefined)
+                out.push(parts[p].block)
+            else
+                pushPiece(parts[p].lines)
+        }
     }
     function pushAll(blocks) {
         for (var b = 0; b < blocks.length; b++)
@@ -44,10 +66,17 @@ function writer(state, dir, chrome, ink) {
             var solo = run[i].trim().length > 0 && (i === 0 || run[i - 1].trim().length === 0)
                 && (i + 1 === run.length || run[i + 1].trim().length === 0)
             var image = solo ? Leaf.standaloneImage(run[i], dir, state.defs) : null
-            if (image !== null) {
+            // A raw image inside its own paragraph or div, on one line or three, is an image block too.
+            var unit = image === null ? HtmlImage.imageUnit(run, i, dir) : null
+            if (image !== null || unit !== null) {
                 pushRun(plain)
                 plain = []
-                out.push(image)
+                out.push(image !== null ? image : unit.block)
+                if (unit !== null) {
+                    i = unit.end
+                    // What its wrapper held under the image is drawn centred under it.
+                    plain = unit.wrapper.slice()
+                }
             } else {
                 plain.push(run[i])
             }

@@ -12,6 +12,8 @@ var MIN_RULE_MARKS = 3
 var MAX_RULE_INDENT = 3
 var DISPLAY_DELIMITER_LENGTH = 2
 var LIST_INTERRUPT_START = 1
+// A document nesting containers deeper than this is not rendered: blocks answers one sentinel and the pane shows the source.
+var NESTING_LIMIT = 32
 var hasOwn = Object.prototype.hasOwnProperty
 
 function listMarker(line) {
@@ -155,6 +157,10 @@ function blockPass(lines, state, emit, collect) {
                     Container.takeList(raw, view, marker)
                 }
                 frames.push(next)
+                if (frames.length > NESTING_LIMIT) {
+                    state.deep = true
+                    return
+                }
                 owner = next.id
                 leaf = null
                 if (frames.length === 1)
@@ -348,6 +354,8 @@ function blocks(source, dir, chrome, ink) {
     var lines = Html.documentText(source).split("\n")
     var state = referenceState()
     blockPass(lines, state, undefined, true)
+    if (state.deep === true)
+        return [{ type: "deep", limit: NESTING_LIMIT }]
     var writer = Document.writer(state, dir, chrome, ink)
     blockPass(lines, state, writer.project, false)
     return writer.finish()

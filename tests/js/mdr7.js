@@ -71,7 +71,7 @@ function run(assert) {
     check("md2b F37 astral path", decodeURIComponent(Url.classifyImage("foo&#65583;bar.png", dir).url), "file:///doc/foo\uD800\uDC2Fbar.png")
 
     var splice = '<img src="pic.png"><span title="\uE0020\uE003">tail</span>'
-    var safeSplice = '<img src="file:///doc/pic.png" alt=""><span title="\uFFFD0\uFFFD">tail</span>'
+    var safeSplice = '![](file:///doc/pic.png)<span title="\uFFFD0\uFFFD">tail</span>'
     check("md2b F38 title cannot splice token", blocks(splice), [{ type: "run", text: safeSplice }])
     check("md2b F38 direct inline boundary", Run.parseInline(splice, dir, {}, {}, chrome, ink, []), safeSplice)
     check("md2b F38 fenced document boundary", blocks("```\n\uE0020\uE003\n```")[0].text, "\uFFFD0\uFFFD")

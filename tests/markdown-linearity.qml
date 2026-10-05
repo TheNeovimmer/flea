@@ -472,6 +472,30 @@ QtObject {
                 var parenLength = Math.floor(tailLength / tailParts);
                 return url + ")".repeat(parenLength) + ".".repeat(tailLength - parenLength);
             },
+            // Many HTML blocks, each a badge row with a remote picture, a table cell picture and a heading.
+            htmlBlocks: function (n) {
+                var unit = '<p align="center">\n<a href="https://x.example/a"><img src="img/a.png" alt="a"></a>\n'
+                    + '<img src="img/b.png" width="40">\n<img src="https://x.example/c.png">\n</p>\n\n'
+                    + '<table><tr><td><img src="img/d.png"></td></tr></table>\n\n<h2 align="center">T</h2>\n\n';
+                return unit.repeat(Math.floor(n / unit.length));
+            },
+            // One HTML block of many lines, each line holding images and a break.
+            htmlLines: function (n) {
+                var line = '<a href="https://x.example/a"><img src="img/a.png"></a><img src="img/b.png"><br>\n';
+                return '<div align="center">\n' + line.repeat(Math.floor(n / line.length)) + '</div>';
+            },
+            // One line of one HTML block holding many linked images.
+            htmlRow: function (n) {
+                var badge = '<a href="https://x.example/a"><img src="img/a.png"></a>';
+                return '<p align="center">' + badge.repeat(Math.floor(n / badge.length)) + '</p>';
+            },
+            // Many image wrappers nested in one another, each opener with its own image and the closers at the end.
+            htmlNested: function (n) {
+                var open = '<div align="center">\n<img src="img/a.png">\n';
+                var close = "</div>\n";
+                var depth = Math.floor(n / (open.length + close.length));
+                return open.repeat(depth) + close.repeat(depth);
+            },
             backtickRun: function (n) {
                 var s = "";
                 while (s.length < n)
@@ -480,7 +504,8 @@ QtObject {
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
-            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "punctTail"];
+            "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "punctTail",
+            "htmlBlocks", "htmlLines", "htmlRow", "htmlNested"];
         Work.install();
         Work.work = 0;
         var uppercaseInput = "Note";

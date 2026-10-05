@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Io
 import "." as Flea
 import "js/Markdown.js" as Markdown
+import "js/MdHtmlImage.js" as HtmlImage
 
 // Rendered and Source previews share document insets, and only images beside the document can load.
 Item {
@@ -61,8 +62,12 @@ Item {
     function headingPx(level) {
         return level >= 1 && level <= root.boardHeadings.length ? root.boardPx(root.boardHeadings[level - 1]) : root.bodyPx
     }
+    // A document past the nesting limit parses to one sentinel block, and the pane then shows its source behind a notice.
+    readonly property bool tooDeep: root.blockList.length === 1 && root.blockList[0].type === "deep"
+    readonly property string shownView: root.tooDeep ? Markdown.SOURCE : root.view
+    readonly property Item noticeItem: deepNotice
     // Only the active file in Rendered view may request figures.
-    readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
+    readonly property bool figuresArmed: root.active && root.shownView !== Markdown.SOURCE
     // Parse sequence numbers reject replies for an older file.
     property var blockList: []
     property int parseSeq: 0
@@ -97,7 +102,7 @@ Item {
 
     readonly property Item bodyItem: body
     // The offset the wheel moved, in whichever view shows, for Quick Look's IPC.
-    readonly property real scrollY: root.view === Markdown.SOURCE ? sourceFlick.contentY : body.contentY
+    readonly property real scrollY: root.shownView === Markdown.SOURCE ? sourceFlick.contentY : body.contentY
     // The render suite reads live delegate geometry; only visible blocks plus the cache exist, so offscreen blocks answer null.
     function blockItem(i) {
         var kids = body.contentItem.children
@@ -398,9 +403,9 @@ Item {
         anchors.fill: parent
         clip: true
         contentWidth: width
-        contentHeight: Math.max(height, sourceText.measuredHeight + 2 * root.insetY)
+        contentHeight: Math.max(height, sourceText.measuredHeight + sourceText.y + root.insetY)
         visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
-            && root.view === Markdown.SOURCE
+            && root.shownView === Markdown.SOURCE
 
         FastScrollHandler {
             parent: sourceFlick
@@ -415,10 +420,10 @@ Item {
             id: sourceText
             // Measure Source outside the scroll-height binding, where Text's lazy getter can relayout and notify.
             property real measuredHeight: 0
-            onImplicitHeightChanged: if (root.view === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
-            onVisibleChanged: if (root.view === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
+            onImplicitHeightChanged: if (root.shownView === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
+            onVisibleChanged: if (root.shownView === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
             x: root.insetX
-            y: root.insetY
+            y: root.insetY + (root.tooDeep ? deepNotice.height + root.blockGap : 0)
             width: sourceFlick.width - 2 * root.insetX
             text: root.rawText
             textFormat: Text.PlainText
@@ -426,6 +431,19 @@ Item {
             color: Theme.color.foreground
             font.family: Theme.font.family
             font.pixelSize: root.bodyPx
+        }
+        Text {
+            id: deepNotice
+            visible: root.tooDeep
+            x: root.insetX
+            y: root.insetY
+            width: sourceFlick.width - 2 * root.insetX
+            text: Markdown.deepNotice()
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            color: Theme.color.muted
+            font.family: Theme.font.family
+            font.pixelSize: Theme.font.caption
         }
     }
 
@@ -437,7 +455,7 @@ Item {
         anchors.rightMargin: root.insetX
         clip: true
         visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
-            && root.view !== Markdown.SOURCE
+            && root.shownView !== Markdown.SOURCE
         model: root.blockList
         // A new model resets the view to its origin, so the saved place is restored once that reset is done.
         onModelChanged: root.restoreScroll()
@@ -474,8 +492,10 @@ Item {
                     return true
                 return (y + height >= v.contentY) && (y <= v.contentY + v.height)
             }
+            // A picture followed by another block keeps the pane's block gap under it too, as a paragraph does, so what follows never touches it.
+            readonly property int pictureGap: (block.type === "images" || block.type === "image") && blockDelegate.blockIndex < root.blockList.length - 1 ? root.blockGap : 0
             // Only the drawn block lends its height, and a list or table chunk lies flush by its own negative y.
-            height: kind.item ? kind.item.height + kind.item.y : 0
+            height: kind.item ? kind.item.height + kind.item.y + blockDelegate.pictureGap : 0
 
             // A block builds only the parts its own kind draws, and they sit on the delegate so a reader of the block finds them there.
             Loader {
@@ -486,7 +506,8 @@ Item {
                     : block.type === "quote" ? quoteBlock
                     : block.type === "remote" ? remoteBlock
                     : block.type === "list" ? listBlock
-                    : block.type === "table" ? tableBlock : imageBlock
+                    : block.type === "table" ? tableBlock
+                    : block.type === "images" ? imagesBlock : imageBlock
                 onLoaded: kind.item.parent = blockDelegate
             }
 
@@ -749,18 +770,36 @@ Item {
                 }
             }
 
+            // A badge row builds only its own pictures, wrapped and aligned by the row itself.
+            Component {
+                id: imagesBlock
+                Flea.MarkdownImages {
+                    width: blockDelegate.width
+                    images: block.type === "images" ? block.items : []
+                    centred: block.type === "images" && block.align === "center"
+                    gap: root.blockGap
+                    linkGate: Markdown.isExternalLink
+                }
+            }
+
             Component {
                 id: imageBlock
                 Image {
                     id: localImage
-                    width: blockDelegate.width
-                    fillMode: Image.PreserveAspectFit
-                    // A picture narrower than the content sits on the text's left edge, as the board's stand-in does.
-                    horizontalAlignment: Image.AlignLeft
+                    // The size rule of the badge row (HtmlImage.pictureSize); its paragraph's align="center" centres it.
+                    readonly property var fit: HtmlImage.pictureSize(block.type === "image" ? block : ({}), localImage.implicitWidth, localImage.implicitHeight, blockDelegate.width)
+                    width: localImage.fit.w
+                    height: localImage.fit.h
+                    x: block.type === "image" && block.align === "center" ? Math.round((blockDelegate.width - localImage.width) / 2) : 0
+                    fillMode: localImage.fit.stretch ? Image.Stretch : Image.PreserveAspectFit
                     visible: block.type === "image"
                     asynchronous: true
                     autoTransform: true
                     source: block.type === "image" ? block.url : ""
+
+                    // A logo wrapped in a link opens it through the pane's link gate.
+                    TapHandler { enabled: block.link !== undefined; gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: if (Markdown.isExternalLink(block.link)) Qt.openUrlExternally(block.link) }
+                    HoverHandler { enabled: block.link !== undefined; cursorShape: Qt.PointingHandCursor }
                 }
             }
         }
