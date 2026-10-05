@@ -161,6 +161,10 @@ named_running() {
 end_named_poll_s=0.05
 end_named_polls=100
 end_named_failures="$test_root/stub-failures"
+stub_failure_count() {
+  [ -e "$1" ] || { printf '0'; return; }
+  printf '%d' "$(wc -l < "$1")"
+}
 end_named() {
   local pid=$1 polls=0
   command kill "$pid" 2>/dev/null || true
@@ -721,9 +725,9 @@ stubborn_failures="$test_root/stubborn-failures"
 stubborn_status=$(end_named_failures=$stubborn_failures; end_named_polls=2; end_named "$stubborn_pid" 2>/dev/null; printf '%s' "$?")
 command kill -KILL "$stubborn_pid" 2>/dev/null
 wait "$stubborn_pid" 2>/dev/null
-stubborn_seen="status $stubborn_status, $(cat "$stubborn_failures" 2>/dev/null)"
+stubborn_seen="status $stubborn_status, $(stub_failure_count "$stubborn_failures") counted, $(cat "$stubborn_failures" 2>/dev/null)"
 check "a stubbed exit past its deadline is counted from a subshell" \
-  "status 1, FAIL stubbed pid $stubborn_pid exits on SIGTERM" "$stubborn_seen"
+  "status 1, 1 counted, FAIL stubbed pid $stubborn_pid exits on SIGTERM" "$stubborn_seen"
 unset stubborn_pid
 unlink "$stubborn_ready"
 [ ! -e "$stubborn_failures" ] || unlink "$stubborn_failures"
@@ -732,6 +736,6 @@ qs() { return 7; }
 require_flea_enumeration >/dev/null 2>&1
 check "failed qs enumeration is refused" 1 "$?"
 
-[ ! -e "$end_named_failures" ] || failures=$(( failures + $(wc -l < "$end_named_failures") ))
+failures=$(( failures + $(stub_failure_count "$end_named_failures") ))
 printf '%s checks, %s failed\n' "$checks" "$failures"
 exit "$failures"
