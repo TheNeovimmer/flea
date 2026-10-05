@@ -9,6 +9,14 @@ var MATH_INK_MIN_BODY_RATIO = 1.04; // Minimum painted x^2 height relative to th
 var MATH_INK_MAX_BODY_RATIO = 1.25; // Maximum painted x^2 height relative to the body font.
 var FIGURE_GAP_TOLERANCE_PX = 2; // Painted figure gaps may differ from paragraph gaps by this many pixels.
 var BLOCK_GAP_TOLERANCE_PX = 0.5; // Drawn block edges may differ from the token gap by this many pixels.
+var GROUND_R = 16; // The preview ground in the grab; ink is any pixel holding a channel the ground lacks.
+var GROUND_G = 19;
+var GROUND_B = 21;
+
+// A pixel counts as ink when any channel is set and the pixel is not the preview ground.
+function isInk(r, g, b) {
+    return (r || g || b) && !(r === GROUND_R && g === GROUND_G && b === GROUND_B);
+}
 
 function figure(md, index) {
     var block = md.blockItem(index);
@@ -205,4 +213,41 @@ function blockGapError(previous, next, gap) {
     var seen = next.y - previous.y - previous.h;
     return Math.abs(seen - gap) <= BLOCK_GAP_TOLERANCE_PX ? ""
         : "drawn block gap " + seen + "px, want " + gap + "px";
+}
+
+// Sample input: two stacked ink bands six rows apart answer "" for a want of 6; a missing band names which figure drew nothing.
+// The two ranges must be disjoint image rows: padded rects overlap the neighbour's ink and read a negative gap.
+function inkGapError(pixels, width, height, upper, lower, want) {
+    function rowHasInk(rect, y) {
+        if (y < 0 || y >= height)
+            return false;
+        for (var x = Math.floor(rect.x); x < Math.ceil(rect.x + rect.w); x++) {
+            if (x < 0 || x >= width)
+                continue;
+            var at = (y * width + x) * RGBA_CHANNELS;
+            var r = pixels[at], g = pixels[at + 1], b = pixels[at + 2];
+            if (isInk(r, g, b))
+                return true;
+        }
+        return false;
+    }
+    var last = -1;
+    for (var uy = Math.ceil(upper.y + upper.h) - 1; uy >= Math.floor(upper.y); uy--) {
+        if (rowHasInk(upper, uy)) {
+            last = uy;
+            break;
+        }
+    }
+    var first = -1;
+    for (var ly = Math.floor(lower.y); ly < Math.ceil(lower.y + lower.h); ly++) {
+        if (rowHasInk(lower, ly)) {
+            first = ly;
+            break;
+        }
+    }
+    if (last < 0 || first < 0)
+        return "no ink in " + (last < 0 ? "upper" : "lower") + " figure";
+    var seen = first - last - 1;
+    return Math.abs(seen - want) <= BLOCK_GAP_TOLERANCE_PX ? ""
+        : "figure ink gap " + seen + "px, want " + want + "px";
 }

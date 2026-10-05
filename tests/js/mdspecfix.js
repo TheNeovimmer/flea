@@ -111,8 +111,10 @@ function run(check) {
     check("a quote mark in an item still opens a quote", JSON.stringify(blocks("- > q\n")[0].parts[0]), JSON.stringify([{ type: "quote", text: "q" }]))
     check("an angle destination never spans a line", blocks("[x](<a\\\nb>)\n")[0].text.indexOf("<a href"), -1)
     check("a destination with a backslash before a break is text", json("[x](<a\\\nb>)\n"), JSON.stringify([{ type: "run", text: "&#91;x&#93;(&#60;a<br />b&#62;)\n" }]))
-    check("a title kept past a definition does not hide the next paragraph", json("intro\n\n[a]: /u\n'title'\n===\n"), JSON.stringify([{ type: "run", text: "intro\n\n===\n" }]))
-    check("a link never spans a blank line", blocks("- [*x\n\n  y](u) *c*\n")[0].items[0], "&#91;&#42;x\n\ny&#93;(u) <em>c</em>")
+    check("a title kept past a definition does not hide the next paragraph", json("intro\n\n[a]: /u\n'title'\n===\n"), JSON.stringify([{ type: "run", text: "intro" }, { type: "run", text: "===\n" }]))
+    check("a link never spans a blank line", blocks("- [*x\n\n  y](u) *c*\n")[0].items[0], "")
+    check("a split label keeps both lines unlinked", JSON.stringify((blocks("- [*x\n\n  y](u) *c*\n")[0].parts || [[]])[0].map(function (b) { return b.text })),
+        JSON.stringify(["&#91;&#42;x", "y&#93;(u) <em>c</em>"]))
     // A destination is decoded once, so the markdown written back for the renderer carries it escaped and never as a second decode.
     check("a linked image destination decodes exactly once", blocks("[![a](p.png)](a&amp;amp;b)\n")[0].text, "[![a](file:///home/gm/notes/p.png)](a&amp;amp;b)\n")
     var refused = ["&amp;#106;avascript:alert(1)", "javascript&amp;colon;alert(1)", "&amp;#x6a;avascript&amp;colon;alert(1)", "java&amp;Tab;script:alert(1)",

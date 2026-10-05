@@ -5,6 +5,7 @@
 .import "MdContainer.js" as Container
 .import "MdRun.js" as Run
 .import "MdHtmlImage.js" as HtmlImage
+.import "MdParagraphs.js" as MdParagraphs
 .import "MdHtmlBlock.js" as HtmlBlock
 .import "MdItems.js" as Items
 .import "MdChunks.js" as Chunks
@@ -87,8 +88,22 @@ function writer(state, dir, chrome, ink, pass, shared) {
     }
     function flushRun() {
         var plain = []
+        // cutAfter says after which blanks the paragraph ends; open HTML across the blank joins it instead.
+        var cut = MdParagraphs.cutAfter(run)
+        function flushPlain() {
+            if (plain.length > 0)
+                pushRun(plain)
+            plain = []
+        }
         for (var i = 0; i < run.length; i++) {
-            var solo = run[i].trim().length > 0 && (i === 0 || run[i - 1].trim().length === 0)
+            if (run[i].trim().length === 0) {
+                if (cut[i])
+                    flushPlain()
+                else
+                    plain.push(run[i])
+                continue
+            }
+            var solo = (i === 0 || run[i - 1].trim().length === 0)
                 && (i + 1 === run.length || run[i + 1].trim().length === 0)
             var image = solo ? Leaf.standaloneImage(run[i], dir, state.defs) : null
             // A raw image inside its own paragraph or div, on one line or three, is an image block too.
@@ -108,7 +123,7 @@ function writer(state, dir, chrome, ink, pass, shared) {
                 plain.push(run[i])
             }
         }
-        pushRun(plain)
+        flushPlain()
         run = []
     }
     // The underline of a setext heading takes the paragraph above it out of the pending run and draws it as a heading.

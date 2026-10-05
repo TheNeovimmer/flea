@@ -55,7 +55,7 @@ function run(check) {
     check("R2-1 a one-line closer of another tag is no unit",
         HtmlImage.imageUnit(['<p align="center"><img src="img/logo.png"></div>'], 0, dir), null)
     var doc = blocks('<div align="center">\n<img src="img/logo.png">\n<p>\nnote\n</p>\n</div>\n\nAfter')
-    check("R2-1 the wrapper's rest is one balanced run, then the text", doc.map(function (b) { return b.type }).join(",") + "|" + String(at(doc, 1).text), 'image,run|<div align="center"><p>\nnote\n</p></div>\n\nAfter')
+    check("R2-1 the wrapper's rest is one balanced run, then the text", doc.map(function (b) { return b.type }).join(",") + "|" + String(at(doc, 1).text), 'image,run,run|<div align="center"><p>\nnote\n</p></div>')
     // R3-2: paragraphs inside one div stack one per line, as GitHub draws them; pictures within one paragraph share a row.
     function shape(source) { return blocks(source).filter(function (b) { return b.type !== "run" }).map(function (b) { return b.type + (b.items ? ":" + b.items.length : "") }).join(",") }
     function two(a, b) { return badge(a, false) + badge(b, false) }

@@ -10,7 +10,8 @@ const adaptor = liteAdaptor();
 RegisterHTMLHandler(adaptor);
 const doc = mathjax.document("", {
   InputJax: new TeX({ packages: ["base", "ams"], maxBuffer: 4096, maxMacros: 256 }),
-  OutputJax: new SVG({ fontCache: "none", fontData: MathJaxTexFont }),
+  // An inline formula draws as one atomic picture in a text line, so it is never broken across lines; display formulas keep the loader's own breaking.
+  OutputJax: new SVG({ fontCache: "none", fontData: MathJaxTexFont, linebreaks: { inline: false } }),
 });
 export function texToSvg(source, display) {
   return adaptor.outerHTML(adaptor.firstChild(doc.convert(source, { display, em: 16, ex: 8, containerWidth: 800 })));

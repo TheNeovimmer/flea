@@ -1,6 +1,7 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdInline.js" as MdInline
 .import "../../ui/js/MdLink.js" as MdLink
+.import "../../ui/js/MdParagraphs.js" as MdParagraphs
 .import "../../ui/js/MdBlocks.js" as MdBlocks
 .import "../../ui/js/MdContainer.js" as MdContainer
 .import "../../ui/js/MdLeaf.js" as MdLeaf
@@ -192,9 +193,9 @@ function run(check) {
     check("no front matter means no fence", kinds("---\n"), "run")
     check("a setext underline makes a heading", kinds("Title\n=====\n"), "heading")
     check("a level-two setext makes a heading", kinds("Title\n---\n"), "heading")
-    check("a thematic break stays prose", kinds("Text\n\n***\n\nMore\n"), "run")
-    check("dashes break too", kinds("Text\n\n---\n\nMore\n"), "run")
-    check("underscores break too", kinds("Text\n\n___\n\nMore\n"), "run")
+    check("a thematic break stays prose", kinds("Text\n\n***\n\nMore\n"), "run,run,run")
+    check("dashes break too", kinds("Text\n\n---\n\nMore\n"), "run,run,run")
+    check("underscores break too", kinds("Text\n\n___\n\nMore\n"), "run,run,run")
     // RenderedPreviews draws a heading at its own size, so an ATX heading is a block of its own.
     var h2 = Markdown.blocks("## Second level ##\n", dir, chrome, ink)[0]
     check("an ATX heading is a heading block", h2.type, "heading")
@@ -219,8 +220,8 @@ function run(check) {
         Markdown.blocks("# - dash\n", dir, chrome, ink)[0].text, "&#45; dash")
     check("an emphasis title keeps its emphasis",
         Markdown.blocks("# _Hi_\n", dir, chrome, ink)[0].text, "<em>Hi</em>")
-    check("spaced stars stay a thematic break", kinds("Text\n\n* * *\n\nMore\n"), "run")
-    check("spaced dashes stay a thematic break", kinds("Text\n\n- - -\n\nMore\n"), "run")
+    check("spaced stars stay a thematic break", kinds("Text\n\n* * *\n\nMore\n"), "run,run,run")
+    check("spaced dashes stay a thematic break", kinds("Text\n\n- - -\n\nMore\n"), "run,run,run")
     check("indented code draws verbatim", kinds("Text\n\n    var a = 1;\n\nMore\n"), "run,fence,run")
     var indented = Markdown.blocks("Text\n\n    var a = 1;\n", dir, chrome, ink)[1]
     check("indented code strips its indent", indented.text, "var a = 1;")
@@ -504,7 +505,8 @@ function run(check) {
     var trick = Markdown.blocks("1.  item\n\n    continued\n", dir, chrome, ink)
     check("a four-space continuation joins its item", trick.length === 1 && trick[0].type === "list", true)
     check("the trick keeps one item", trick[0].items.length, 1)
-    check("the trick keeps both lines", trick[0].items[0].indexOf("continued") >= 0, true)
+    check("the trick keeps both lines", JSON.stringify((trick[0].parts || [[]])[0].map(function (b) { return b.text })),
+        JSON.stringify(["item", "continued"]))
     check("an ordered list keeps its start", Markdown.blocks("3. a\n4. b\n", dir, chrome, ink)[0].start, 3)
     var lazy = Markdown.blocks("1. a\nlazy line\n2. b\n", dir, chrome, ink)[0]
     check("a lazy line joins its item", lazy.items[0].indexOf("lazy") >= 0, true)
@@ -566,6 +568,34 @@ function run(check) {
     var child = Markdown.blocks("1. a\n   - b", dir, chrome, ink)
     check("a marker at the content column stays nested", child.length, 1)
     check("a nested marker is an entry one level down", JSON.stringify([child[0].items, child[0].depths]), "[[\"a\",\"b\"],[0,1]]")
+
+    // A blank line ends the paragraph: consecutive paragraphs are consecutive run blocks, so the list's gap stands between every pair.
+    var paras = Markdown.blocks("para one\n\npara two\n", dir, chrome, ink)
+    check("consecutive paragraphs are consecutive runs", paras.map(function (b) { return b.type }).join(","), "run,run")
+    check("each paragraph keeps its own text", paras.map(function (b) { return b.text }).join("|"), "para one|para two\n")
+    var mathsPara = Markdown.blocks("Inline maths $x^2 + y^2$ in a line.\n\n&#49;. ol\n", dir, chrome, ink)
+    check("a maths paragraph and its neighbour are consecutive runs", mathsPara.map(function (b) { return b.type }).join(","), "run,run")
+    check("the maths stays on the first run", mathsPara.length === 2 && mathsPara[0].maths !== undefined ? mathsPara[0].maths.join(",") : "", "x^2 + y^2")
+    check("no run after the split lists a formula twice", mathsPara.length === 2 && mathsPara[1].maths === undefined, true)
+
+    // A tag in a code span or after a backslash escape never opens, so the blank after it still cuts.
+    function cut(lines) {
+        return JSON.stringify(MdParagraphs.cutAfter(lines))
+    }
+    check("a code span tag never opens", cut(["Use `<div>` here", "", "next"]), "[false,true,false]")
+    check("a code span tag name never opens", cut(["Write `<String>` then", "", "more"]), "[false,true,false]")
+    check("an escaped tag never opens", cut(["\\<div> x", "", "y"]), "[false,true,false]")
+    check("a void tag matches either case", cut(["<BR> a", "", "b"]), "[false,true,false]")
+    check("a code span paragraph splits", kinds("Use `<div>` here\n\nnext"), "run,run")
+    // A tag may wrap at whitespace: the carried fragment rejoins with its newline, so void cuts and span stays open.
+    check("a carried void tag cuts", cut(["<img", "src=\"x.png\">", "", "after"]), "[false,false,true,false]")
+    check("a carried tag stays open", cut(["<span", "class=\"a\">open", "", "still"]), "[false,false,false,false]")
+    check("a carried void tag splits", kinds("<img\nsrc=\"x.png\">\n\nafter"), "run,run")
+    check("a carried span joins", kinds("<span\nclass=\"a\">open\n\nstill"), "run")
+    // A blank inside a comment never cuts, the one after it does; a void tag left open cuts; details spans its blanks.
+    check("a blank inside a comment never cuts", cut(["<!-- a", "", "b -->", "", "c"]), "[false,false,false,true,false]")
+    check("a void tag left open cuts", cut(["<br>", "", "b"]), "[false,true,false]")
+    check("details spans its blanks", cut(["<details>", "", "x", "", "</details>"]), "[false,false,false,false,false]")
 
     // Reads are counted per character scanned, so the check holds on any machine and needs no clock.
     function countedScan(source) {
