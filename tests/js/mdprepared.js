@@ -40,6 +40,17 @@ function run(check) {
         check("a " + classes[i] + " mount never reads inline or ahead", Prepared.readsInline(regular, classes[i], true), false)
     // A class that has not landed is never spent as local: it reads nothing until the reply says local.
     check("a local file reads nothing before its folder's class is known", Prepared.readsInline(regular, "", false), false)
+    // The pictures a prepared document names are sized by stat and decoded ahead only when small and local.
+    var doc = [{ type: "image", url: "file:///d/a.png" }, { type: "run", text: "x" },
+        { type: "images", items: [{ url: "file:///d/b%20c.png" }, { url: "file:///d/a.png" }, { url: "https://x/y.png" }] }]
+    check("a document's local pictures are named once, in reading order", JSON.stringify(Prepared.pictureUrls(doc, 8)), JSON.stringify(["file:///d/a.png", "file:///d/b%20c.png"]))
+    check("a document past the limit names only the first pictures", JSON.stringify(Prepared.pictureUrls(doc, 1)), JSON.stringify(["file:///d/a.png"]))
+    check("a document with no picture names none", JSON.stringify(Prepared.pictureUrls([{ type: "run", text: "x" }], 8)), JSON.stringify([]))
+    check("a percent-encoded name is stat'd by its path", Prepared.pathOfUrl("file:///d/b%20c.png"), "/d/b c.png")
+    var urls = ["file:///d/a.png", "file:///d/big.png", "file:///d/gone.png", "file:///d/b%20c.png", "file:///d/empty.png"]
+    var statText = "2048\t/d/a.png\n" + (Prepared.PICTURE_MAX_BYTES + 1) + "\t/d/big.png\n" + Prepared.PICTURE_MAX_BYTES + "\t/d/b c.png\n0\t/d/empty.png\n"
+    check("only a sized, non-empty picture within the cap is held", JSON.stringify(Prepared.smallPictures(urls, statText)), JSON.stringify(["file:///d/a.png", "file:///d/b%20c.png"]))
+    check("a stat that printed nothing holds nothing", JSON.stringify(Prepared.smallPictures(urls, "")), JSON.stringify([]))
     // Neither the read nor the parse of a resting cursor may run on the UI thread: no FileView, no blocking read, no parser call in the item.
     var prepareSource = Source.source("ui/QuickLookPrepare.qml")
     check("the rest-time prepare calls no parser", prepareSource.indexOf("Markdown.blocks(") < 0, true)

@@ -4,6 +4,7 @@ import "js/Markdown.js" as Markdown
 import "js/MarkdownPrepared.js" as Prepared
 
 // A rested cursor on a small regular local Markdown file reads it capped and parses it in the worker into Quick Look's entry.
+// The document's small local pictures are decoded ahead too and held while the cursor rests, so the open draws them in its first frame.
 Item {
     id: root
 
@@ -21,6 +22,9 @@ Item {
     property int seq: 0
     // The one request waiting on the worker: its seq, path, text and the inputs the parse took.
     property var asked: null
+    // The small local pictures the prepared document names, held decoded until the cursor moves, and whether each has finished loading.
+    property var pictures: []
+    property bool picturesSettled: true
 
     Timer {
         id: rest
@@ -38,6 +42,9 @@ Item {
 
     function moved() {
         root.seq++
+        if (root.pictures.length > 0)
+            root.pictures = []
+        root.picturesSettled = true
         rest.restart()
     }
 
@@ -55,6 +62,39 @@ Item {
                     proc.destroy()
                 }
             }
+        }
+    }
+
+    // stat sizes the pictures in one child, so no picture past PICTURE_MAX_BYTES is decoded ahead whatever the document links.
+    Component {
+        id: sizerComponent
+        Process {
+            id: sizer
+            property int seq: 0
+            property var urls: []
+            command: ["stat", "-L", "--printf", "%s\\t%n\\n", "--"].concat(sizer.urls.map(Prepared.pathOfUrl))
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    root.sized(sizer.seq, sizer.urls, this.text)
+                    sizer.destroy()
+                }
+            }
+        }
+    }
+
+    // One held Image per small picture, built as the block builds its own so the open finds it in the pixmap cache, whose key holds
+    // the url, the transform option and whether the fill keeps the aspect: an Image left at Stretch would never be found by a block.
+    Repeater {
+        id: held
+        model: root.pictures
+        delegate: Image {
+            required property string modelData
+            visible: false
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            autoTransform: true
+            source: modelData
+            onStatusChanged: root.recount()
         }
     }
 
@@ -87,7 +127,9 @@ Item {
         var dir = Markdown.dirOf(path)
         var chrome = Prepared.hexOf(Theme.color.background)
         var ink = Prepared.hexOf(Theme.color.foreground)
-        if (Prepared.take(path, text, dir, chrome, ink) !== null) {
+        var entry = Prepared.take(path, text, dir, chrome, ink)
+        if (entry !== null) {
+            root.startPictures(entry)
             root.preparedPath = path
             return
         }
@@ -108,7 +150,36 @@ Item {
             return
         Prepared.store(a.path, a.text, a.dir, a.chrome, a.ink, reply.blocks)
         root.workerAnswers++
+        root.startPictures(reply.blocks)
         root.preparedPath = a.path
+    }
+
+    function startPictures(blocks) {
+        var urls = Prepared.pictureUrls(blocks, Prepared.PICTURE_LIMIT)
+        if (urls.length === 0)
+            return
+        root.picturesSettled = false
+        sizerComponent.createObject(root, { seq: root.seq, urls: urls }).running = true
+    }
+
+    // The sizes landed: only a cursor that has not moved holds the pictures that fit.
+    function sized(seq, urls, statText) {
+        if (seq !== root.seq)
+            return
+        root.pictures = Prepared.smallPictures(urls, statText)
+        root.recount()
+    }
+
+    // Settled once no held picture is still loading, a failed one included.
+    function recount() {
+        for (var i = 0; i < held.count; i++) {
+            var one = held.itemAt(i)
+            if (one !== null && one.status === Image.Loading) {
+                root.picturesSettled = false
+                return
+            }
+        }
+        root.picturesSettled = true
     }
 
     // The worker thread lives only while a parse waits.

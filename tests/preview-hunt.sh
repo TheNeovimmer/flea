@@ -105,7 +105,7 @@ for scenario in "${scenarios[@]}"; do
             printf '%s\n' "$output" | tail -8
         fi
     fi
-    warnings=$(printf '%s\n' "$output" | grep -E 'TypeError|ReferenceError|Unable to assign' || true)
+    warnings=$(printf '%s\n' "$output" | grep -E 'TypeError|ReferenceError|Unable to assign|Binding loop detected' || true)
     if [ -n "$warnings" ]; then printf 'FAIL preview binding warning: %s\n' "$warnings"; failures=$((failures+1)); fi
     if [ "$scenario" = source-key ]; then
         # A state file the flip never wrote is fine; one that exists must not hold the retired leaf.
