@@ -50,6 +50,10 @@ function run(check) {
     check("a heading's late picture is in no heading block", noPictureInHeading(lateLogo), true)
     var wrappedLate = blocks('<div align="center">\n<h1>Flea <img src="logo.png" width="120"></h1>\n</div>')
     check("a wrapped heading with a late picture is in no heading block", noPictureInHeading(wrappedLate) && balanced(wrappedLate), true)
+    var twoLogos = blocks('<h1><img src="a.png"><img src="b.png">Flea</h1>')
+    check("a heading with a second picture after the first stays in its run", twoLogos.every(function (b) { return b.type !== "heading" }) && noPictureInHeading(twoLogos), true)
+    var markdownLogo = blocks('<h1>Flea ![logo](logo.png)</h1>')
+    check("a heading holding a Markdown image stays in its run", markdownLogo.every(function (b) { return b.type !== "heading" }) && noPictureInHeading(markdownLogo), true)
 
     function head(line) { return HtmlBlock.htmlHeading(line) }
     check("two headings on one line are no heading", head("<h1>a</h1><h1>b</h1>"), null)
