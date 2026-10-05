@@ -289,6 +289,12 @@ Hidden body text.
 <script>alert(1)</script>
 <!-- a comment -->
 <div align="right">Right aligned</div>
+
+<div align="center">
+<h2>Wrapped heading</h2>
+</div>
+
+<h2 align="center"><img src="logo.png" width="120" alt="banner"><br>Picture heading</h2>
 MD
     base64 -d > "$dir/logo.png" <<< "$capmarkdownkinds_png_b64"
     base64 -d > "$dir/bands.png" <<< "$capmarkdownkinds_png_b64"
