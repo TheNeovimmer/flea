@@ -132,13 +132,15 @@ class StaticGateTests(unittest.TestCase):
                 index = next(i for i, line in enumerate(lines) if parser in line)
                 self.assertIn('# Sample input:', lines[index - 1])
 
-    def test_worker_announce_reads_the_object_and_ignores_strings_and_comments(self):
+    def test_worker_announce_allows_only_the_counted_worker(self):
         self.write('ui/Bare.qml', 'Item { WorkerScript { source: "W.js" } }\n')
-        self.write('ui/Counted.qml', 'WorkerScript {\n    Component.onCompleted: console.info(log, "WORKER_STARTED " + source)\n}\n')
+        self.write('ui/Said.qml', 'WorkerScript {\n    // WORKER_STARTED\n    Component.onCompleted: console.info(log, "WORKER_STARTED " + source)\n}\n')
         self.write('ui/Prose.qml', 'Item { // a WorkerScript { here\n    property string s: "WorkerScript {"\n}\n')
         self.write('ui/Named.qml', 'Item { CountedWorker { source: "W.js" } }\n')
-        self.assertEqual(gates.worker_announce(self.root, ['ui/Bare.qml', 'ui/Counted.qml', 'ui/Prose.qml', 'ui/Named.qml']),
-                         (4, ['ui/Bare.qml:1: WorkerScript without a WORKER_STARTED announcement']))
+        self.write('ui/CountedWorker.qml', 'WorkerScript {\n}\n')
+        files = ['ui/Bare.qml', 'ui/Said.qml', 'ui/Prose.qml', 'ui/Named.qml', 'ui/CountedWorker.qml']
+        self.assertEqual(gates.worker_announce(self.root, files),
+                         (5, ['ui/Bare.qml:1: WorkerScript outside ui/CountedWorker.qml', 'ui/Said.qml:1: WorkerScript outside ui/CountedWorker.qml']))
 
     def test_F10_malformed_tsv_names_file_and_line(self):
         self.write('ui/A.qml', 'import QtQuick\nItem {}\n')

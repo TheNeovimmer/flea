@@ -12,6 +12,7 @@ import sys
 import tempfile
 import tarfile
 
+COUNTED_WORKER = 'ui/CountedWorker.qml'
 GATES = ('conflict-marker', 'fused-line', 'paneprops', 'del-printable', 'qml-undeclared-read', 'qml-duplicate-member', 'worker-announce')
 SUFFIXES = {'.rs', '.qml', '.js', '.sh'}
 # Bound alias propagation so pathological chains cannot keep a source gate running.
@@ -751,7 +752,7 @@ def qml_duplicate_member(root, files):
     return len(qml) + len(js), errors
 
 
-# Sample input: a ui QML file holding "WorkerScript {\n    source: \"W.js\"\n}" with no WORKER_STARTED inside its braces is rejected.
+# Sample input: ui/Sample.qml holding "WorkerScript { source: \"W.js\" }" in code is rejected; only ui/CountedWorker.qml, whose start lines the qs log gates count, may hold one.
 def worker_announce(root, files):
     errors = []
     scanned = 0
@@ -760,11 +761,11 @@ def worker_announce(root, files):
         if not file.startswith('ui/') or path.suffix != '.qml' or not path.is_file():
             continue
         scanned += 1
-        text = path.read_text()
-        code = masked(text, '.qml')
+        if file == COUNTED_WORKER:
+            continue
+        code = masked(path.read_text(), '.qml')
         for m in re.finditer(r'\bWorkerScript\s*\{', code):
-            if 'WORKER_STARTED' not in text[m.start():closing(code, m.end() - 1, '{', '}')]:
-                errors.append(f'{location(file, code, m.start())}: WorkerScript without a WORKER_STARTED announcement')
+            errors.append(f'{location(file, code, m.start())}: WorkerScript outside {COUNTED_WORKER}')
     return scanned, errors
 
 
@@ -800,7 +801,7 @@ def negative_controls(root):
             expected = {'conflict-marker': 'unresolved conflict marker', 'fused-line': 'fused code gap',
                         'paneprops': 'pane.removedProperty absent', 'del-printable': 'printable event.text decision',
                         'qml-undeclared-read': 'new unqualified read asker',
-                        'worker-announce': 'WorkerScript without a WORKER_STARTED announcement',
+                        'worker-announce': 'WorkerScript outside ui/CountedWorker.qml',
                         'qml-duplicate-member': ('wire declared again (first at 2)' if file.endswith('.js') else 'Duplicate alias name')}[gate]
             if (result.returncode != 1 or expected not in diagnostic or file + ':' not in diagnostic
                     or 'STATICGATES FAIL gates=1' not in result.stdout):

@@ -90,9 +90,9 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
 printf '%s\n' "$output" | qslog_nullptr markdown-lazy || exit 1
-# The same document with no logging rules: the announcement stays off, and the null connect lines prove a worker did start.
-quiet=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QT_LOGGING_RULES \
-    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+# The same document with no logging rules or qtlogging.ini: the announcement stays off, and the null connect lines prove a worker did start.
+quiet=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QT_LOGGING_RULES -u QT_LOGGING_CONF \
+    HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/home/.config" XDG_CONFIG_DIRS="$test_root/xdg" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
     XDG_RUNTIME_DIR="$test_root/runtime" FLEA_MARKDOWN_FIXTURE="$test_root/notes.md" \
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
