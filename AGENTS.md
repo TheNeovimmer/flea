@@ -3512,6 +3512,8 @@ rflake 2026-10-05 (the exact-wait test compared least overshoots against a 2.5 m
 
 clipjoin 2026-10-05 records `src/clip/watch_end_tests.rs` at 406, re-derived with `wc -l`: the waiter-join pin reads each waiter thread's `PF_EXITING` flag from `/proc` (`waiters_joined`, three named stat constants) and holds a stopped waiter for `WAITER_STOP_HOLD_MS`, beside the end tests it guards rather than in a second file. Global limits and all checks remain intact.
 
+cliphunt 2026-10-05 moves one ceiling, re-derived with `wc -l`: `src/backend/menu_actions.rs` 560 to 641 for `request()` answering each outcome of the new one-slot queue (a displaced snapshot is answered as cancelled, a full slot as still running, a closed one as stopped) and three tests pinning a queued snapshot displaced by a newer one, queued work kept, and the reopened snapshot answered end to end. The queue lives in `src/backend/menu_slot.rs`; the worker holds a guard that closes it when the worker returns or panics. `tests/menu-clipboard-hunt.qml` is 258 lines, over the soft budget with a warning only, for the menu-state evidence its stage-12 timeout prints. Global limits and all checks remain intact.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.

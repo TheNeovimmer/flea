@@ -1,18 +1,19 @@
 // Menu snapshots own selected identities; registry work runs only after an explicit menu action.
 use crate::backend::opsreq::OpMsg;
 use super::menu_registry::{self, Registry};
+use super::menu_slot::{CloseOnExit, MenuSlot, Sent};
 use super::trashmanifest::Cancellation;
 use crate::json::{escape, field_bool, field_str, field_usize};
 use std::fs::{Metadata, OpenOptions};
 use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{sync_channel, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct MenuActions {
-    requests: SyncSender<(String, Vec<String>, Option<String>, Cancellation)>,
+    slot: Arc<MenuSlot>,
     replies: Sender<OpMsg>,
     snapshot: Arc<Mutex<Snapshot>>,
     cancellation: Mutex<Cancellation>,
@@ -23,8 +24,9 @@ pub struct MenuActions {
 impl MenuActions {
     pub fn new(replies: Sender<OpMsg>) -> Self {
         // One pending request bounds repeated activation while an application registry query runs.
-        let (requests, receiver) = sync_channel::<(String, Vec<String>, Option<String>, Cancellation)>(1);
+        let slot = Arc::new(MenuSlot::default());
         let output = replies.clone();
+        let queued = Arc::clone(&slot);
         let snapshot = Arc::new(Mutex::new(Snapshot::default()));
         let published = Arc::clone(&snapshot);
         let registry = Registry::default();
@@ -32,7 +34,8 @@ impl MenuActions {
         let restoration = Arc::new(Mutex::new((0, Vec::new())));
         let completed = Arc::clone(&restoration);
         std::thread::spawn(move || {
-            while let Ok((line, paths, cursor, cancel)) = receiver.recv() {
+            let _close = CloseOnExit(Arc::clone(&queued));
+            while let Some((line, paths, cursor, cancel)) = queued.take() {
                 let mut state = published.lock().unwrap().clone();
                 let mut reply = if cancel.check().is_ok() {
                     state.handle_request(&line, paths, cursor.as_deref(), &queries, &cancel)
@@ -53,7 +56,7 @@ impl MenuActions {
                 if output.send(message).is_err() { break; }
             }
         });
-        Self { requests, replies, snapshot, cancellation: Mutex::new(Cancellation::default()), registry, requested_id: AtomicUsize::new(0), restoration }
+        Self { slot, replies, snapshot, cancellation: Mutex::new(Cancellation::default()), registry, requested_id: AtomicUsize::new(0), restoration }
     }
     pub(crate) fn retain_survivors(&self, id: usize, matches: &mut Vec<(&str, usize)>) -> Result<(), String> {
         let restoration = self.restoration.lock().map_err(|_| "The menu service stopped; refresh this window.")?;
@@ -105,22 +108,27 @@ impl MenuActions {
                 return false;
             }
         }
-        if let Err(error) = self.requests.try_send((line, paths, cursor, cancellation.clone())) {
-            let (request, reason) = match error {
-                TrySendError::Full(request) => (request, "A menu request is still running; try again when it finishes."),
-                TrySendError::Disconnected(request) => (request, "The menu service stopped; reopen this window."),
-            };
-            let reply = response(&request.0, Err(reason.into()));
-            let _ = self.replies.send(OpMsg::Meta { line: reply });
-            return false;
-        }
-        true
+        let refusal = match self.slot.send((line, paths, cursor, cancellation.clone())) {
+            Sent::Queued => return true,
+            Sent::Displaced(older) => {
+                let mut reply = response(&older.0, Err("Menu request cancelled.".into()));
+                reply.insert_str(reply.len() - 1, r#", "cancelled":true"#);
+                let _ = self.replies.send(OpMsg::Meta { line: reply });
+                return true;
+            }
+            Sent::Busy(refused) => (refused.0, "A menu request is still running; try again when it finishes."),
+            Sent::Closed(refused) => (refused.0, "The menu service stopped; reopen this window."),
+        };
+        let reply = response(&refusal.0, Err(refusal.1.into()));
+        let _ = self.replies.send(OpMsg::Meta { line: reply });
+        false
     }
 }
 
 impl Drop for MenuActions {
     fn drop(&mut self) {
         self.cancellation.lock().unwrap().next();
+        self.slot.close();
         if let Err(error) = self.registry.cancel() { eprintln!("flea: {}", error); }
     }
 }
@@ -358,6 +366,79 @@ mod tests {
     use crate::backend::testdir::TestDir;
     use std::os::unix::fs::symlink;
 
+    // A menu whose worker never runs: no scheduling luck decides what stays queued.
+    fn unstarted_menu() -> (MenuActions, std::sync::mpsc::Receiver<OpMsg>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let menu = MenuActions {
+            slot: Arc::new(MenuSlot::default()),
+            replies: tx,
+            snapshot: Arc::new(Mutex::new(Snapshot::default())),
+            cancellation: Mutex::new(Cancellation::default()),
+            registry: Registry::default(),
+            requested_id: AtomicUsize::new(0),
+            restoration: Arc::new(Mutex::new((0, Vec::new()))),
+        };
+        (menu, rx)
+    }
+
+    #[test]
+    fn a_queued_snapshot_yields_its_slot_to_a_newer_snapshot() {
+        let (menu, rx) = unstarted_menu();
+        let line = |id: usize| format!(r#"{{"c":"menuaction","op":"snapshot","id":{}}}"#, id);
+        assert!(menu.request(line(41), vec![], None));
+        assert!(menu.request(line(42), vec![], None),
+            "a reopen during its own snapshot must not refuse while that snapshot is still queued");
+        match rx.try_recv().expect("the displaced snapshot must still be answered") {
+            OpMsg::Meta { line } => assert!(field_usize(&line, "id") == Some(41) && field_bool(&line, "cancelled")),
+            _ => panic!("a displaced snapshot is answered as Meta"),
+        }
+        let queued = menu.slot.take().expect("the newer snapshot must hold the slot");
+        assert_eq!(field_usize(&queued.0, "id"), Some(42), "the older snapshot must be displaced and answered, never run");
+        menu.slot.close();
+        assert!(menu.slot.take().is_none());
+    }
+
+    #[test]
+    fn queued_work_is_never_displaced_by_a_snapshot() {
+        let (menu, rx) = unstarted_menu();
+        let activate = r#"{"c":"menuaction","op":"activate","id":7,"action":"pasteAs:pasteLink"}"#.to_string();
+        assert!(menu.request(activate, vec![], None));
+        assert!(!menu.request(r#"{"c":"menuaction","op":"snapshot","id":8}"#.to_string(), vec![], None),
+            "work must keep its slot; only the refusal may answer");
+        match rx.try_recv().expect("the refusal must still answer rather than hang") {
+            OpMsg::Meta { line } => {
+                assert_eq!(field_usize(&line, "id"), Some(8));
+                assert!(!field_bool(&line, "ok") && line.contains("still running"));
+            }
+            _ => panic!("a refusal must arrive as Meta"),
+        }
+        let queued = menu.slot.take().expect("the activate must still be queued");
+        assert_eq!(field_usize(&queued.0, "id"), Some(7));
+    }
+
+    #[test]
+    fn a_reopened_snapshot_is_answered_end_to_end() {
+        let sandbox = TestDir::new("menu-resnapshot");
+        let path = sandbox.file("item", "body");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let menu = MenuActions::new(tx);
+        let line = |id: usize| format!(r#"{{"c":"menuaction","op":"snapshot","id":{}}}"#, id);
+        let paths = vec![path.to_string_lossy().into_owned()];
+        assert!(menu.request(line(41), paths.clone(), None));
+        assert!(menu.request(line(42), paths, None));
+        // At most two replies are owed; the reopened snapshot's answer must be among them.
+        let mut saw42 = false;
+        for _ in 0..2 {
+            let reply = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("a snapshot reply");
+            if let OpMsg::Meta { line } = reply {
+                if field_usize(&line, "id") == Some(42) && field_bool(&line, "ok") {
+                    saw42 = true;
+                    break;
+                }
+            }
+        }
+        assert!(saw42, "the reopened snapshot must still be answered");
+    }
     #[test]
     fn cancellation_at_publication_cannot_resurrect_a_closed_snapshot() {
         let published = Mutex::new(Snapshot::default());

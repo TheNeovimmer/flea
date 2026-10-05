@@ -49,6 +49,7 @@ pub mod localsendtext;
 pub mod permissions;
 pub mod picker;
 pub mod menu_actions;
+mod menu_slot;
 mod menu_registry;
 mod menudelete;
 pub mod trashbrowse;
