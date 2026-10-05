@@ -93,11 +93,11 @@ tests/touchpad.qml 747
 tests/xwsettings-tabs.qml 444
 ui/Backend.qml 472
 ui/ChromeBar.qml 472
-ui/ColumnsArea.qml 483
+ui/ColumnsArea.qml 491
 ui/ContextMenu.qml 739
 ui/ConvertDialog.qml 435
 ui/GridArea.qml 420
-ui/Ipc.qml 880
+ui/Ipc.qml 882
 ui/KeymapSheet.qml 549
 ui/List.qml 437
 tests/touchpad-edge.qml 438

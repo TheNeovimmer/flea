@@ -480,4 +480,12 @@ Item {
             }
         }
     }
+
+    // For ui/Ipc.qml: the names a drawn neighbour column holds, "|" joined, and "" when that column is not drawn.
+    function drawnNames(slot) {
+        var drawn = slot === "child" ? root.shownIsDir : (slot === "parent" && root.showParent && root.parentShown)
+        return drawn ? (slot === "child" ? childColumn.rows : parentColumn.rows).map(function (row) { return row.n }).join("|") : ""
+    }
+    // For ui/Ipc.qml: the names the window last read for a folder, drawn or not.
+    function peekNames(path) { return root.rowsFor(path).map(function (row) { return row.n }).join("|") }
 }
