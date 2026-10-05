@@ -77,20 +77,21 @@ function unitsReady(root, ready) {
     return units.every(function (u) { return u !== null && u !== undefined && u.status === ready })
 }
 
-// After a rest with Quick Look never opened no card is built, while the entry and the units are: red while a rest still builds the closed card.
+// After a rest with Quick Look never opened the one card is built and closed beside the entry and the units: red while only the first Space builds it.
 function proveGone(root) {
     var step = root.steps[root.step]
-    if (root.pv() !== null) root.fail("a rest on " + step.name + " built Quick Look without Space")
+    if (root.pv() === null || root.cardLoads !== 1) root.fail("a rest on " + step.name + " built " + root.cardLoads + " Quick Look card(s), want 1")
+    else if (root.pv().active || root.pv().visible) root.fail("a rest on " + step.name + " opened Quick Look without Space")
     if (root.prepare.preparedPath !== root.target()) root.fail("a rest on " + step.name + " prepared " + root.prepare.preparedPath)
     if (!root.unitsReady()) root.fail("a rest on " + step.name + " holds no compiled units")
-    else root.log("NOBUILD " + step.name + " entry and units ready, no card")
+    else root.log("NOOPEN " + step.name + " entry, units and a closed card ready")
 }
 
 // A move off the rested file drops its prepared entry at once, so a move back waits on a new rest.
 function proveMoved(root) {
     var step = root.steps[root.step]
     if (root.prepare.preparedPath !== "") root.fail("a move off " + step.name + " kept the prepared entry " + root.prepare.preparedPath)
-    else root.log("NOBUILD a move off " + step.name + " dropped the prepared entry")
+    else root.log("NOOPEN a move off " + step.name + " dropped the prepared entry")
 }
 
 // The first block of the document named by the step: a block left over from the previous file never counts.

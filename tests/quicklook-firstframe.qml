@@ -70,8 +70,16 @@ ShellRoot {
     property var prepare: null
     // The window's QuickLookWarm, built by the cursor's first landing on a Markdown file, long before Quick Look.
     property var warm: null
-    // QLFF_NOBUILD=1 rests on a Markdown file and never opens: no card may be built while the entry and the units are made.
-    readonly property bool nobuildWanted: Quickshell.env("QLFF_NOBUILD") === "1"
+    // The window's Quick Look loader and how many cards it has built: a rest on a Markdown file builds the one card, hidden, and the first Space only opens it.
+    readonly property var cardLoader: body.item ? body.item.currentPane.previewLoader : null
+    property int cardLoads: 0
+    property int loadsAtKey: 0
+    Connections {
+        target: root.cardLoader
+        function onLoaded() { root.cardLoads++ }
+    }
+    // QLFF_NOOPEN=1 rests on a Markdown file and never opens: the card, the entry and the units are all ready, the card closed.
+    readonly property bool noopenWanted: Quickshell.env("QLFF_NOOPEN") === "1"
     // The first prepared parse of a run is the worker's; later opens reuse the entry Quick Look stored itself.
     property bool compared: false
     // True while a real key's event loop runs: a poll tick inside it must not finish the run, as Qt.exit there tears the root down under the key's own handler.
@@ -216,7 +224,11 @@ ShellRoot {
         root.stage = 2
         root.stageAt = Date.now()
         root.keyAt = Date.now()
-        root.log("KEY " + (root.step + 1) + " " + step.name + " " + step.via + " built=" + (root.pv() !== null))
+        root.loadsAtKey = root.cardLoads
+        root.log("KEY " + (root.step + 1) + " " + step.name + " " + step.via + " built=" + (root.pv() !== null) + " cards=" + root.cardLoads)
+        // The first Space after a rest on a Markdown file finds the card built and closed, so it builds nothing and only opens it.
+        if (root.step === 0 && (root.pv() === null || root.pv().active || root.pv().visible))
+            root.fail("a rest on " + step.name + " left " + (root.pv() === null ? "no Quick Look card built" : "the Quick Look card open") + " before the first Space")
         if (step.via === "move") {
             PreviewKeys.act(root.indexOf(step.name) > pane.cursorIndex ? "cursorDown" : "cursorUp", pane)
         } else if (root.realKey) {
@@ -239,7 +251,9 @@ ShellRoot {
                 root.fail("step " + (root.step + 1) + " read " + step.name + " inside the key (" + loads + " load(s) landed before the event loop turned)")
         }
         root.returnedAt = Date.now()
-        root.log("KEYRETURNED " + (root.step + 1))
+        root.log("KEYRETURNED " + (root.step + 1) + " cards=" + root.cardLoads)
+        if (step.via === "space" && root.cardLoads !== root.loadsAtKey)
+            root.fail("step " + (root.step + 1) + " built " + (root.cardLoads - root.loadsAtKey) + " Quick Look card(s) inside the key, want 0")
     }
 
     function next() {
@@ -306,7 +320,6 @@ ShellRoot {
                     return
                 }
                 if (!root.unitsReady()) return
-                if (root.pv() !== null) { root.fail("Quick Look is built before the first Space"); root.finish(); return }
                 root.log("PSS rest-markdown " + root.pssKb())
                 root.keys = Qt.createQmlObject("import QtTest; TestEvent {}", pane.listArea)
                 root.forceClass()
@@ -381,8 +394,8 @@ ShellRoot {
                     root.finish()
                     return
                 }
-                // The nobuild leg never opens: a rest holds the entry and the units with no card, and a move off drops the entry.
-                if (root.nobuildWanted) { Fresh.proveGone(root); pane.cursorIndex = root.indexOf(step.name) + 1; Fresh.proveMoved(root); root.next(); return }
+                // The noopen leg never opens: a rest holds the entry, the units and the closed card, and a move off drops the entry.
+                if (root.noopenWanted) { Fresh.proveGone(root); pane.cursorIndex = root.indexOf(step.name) + 1; Fresh.proveMoved(root); root.next(); return }
                 if (step.expect === "capped") {
                     if (root.prepare.readBytes === 0) return
                     root.log("CAPPED reads=" + root.prepare.reads + " bytes=" + root.prepare.readBytes)

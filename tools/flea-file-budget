@@ -80,7 +80,7 @@ tests/js/tabs.js 686
 tests/columnrow-geom.qml 409
 tests/columnscost.qml 416
 tests/columnsfolder.qml 399
-tests/quicklook-firstframe.qml 419
+tests/quicklook-firstframe.qml 432
 tests/markdown-render.qml 793
 tests/markdown-linearity.qml 648
 tests/preview-settle-live.qml 457
