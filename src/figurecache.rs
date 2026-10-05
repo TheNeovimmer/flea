@@ -184,8 +184,11 @@ pub fn is_key(name: &str) -> bool {
     name.len() == KEY_HEX_CHARS && name.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+// One manifest line: a blob's file name, its size in bytes and its content digest.
+pub type BlobEntry = (String, u64, String);
+
 // Sample output: "flea-figures 1\nkey 00112233445566778899aabbccddeeff\nmath.bc 2894225 0123456789abcdef0123456789abcdef\n".
-pub fn manifest_text(key: &str, blobs: &[(String, u64, String)]) -> String {
+pub fn manifest_text(key: &str, blobs: &[BlobEntry]) -> String {
     let mut text = format!("{FORMAT}\nkey {key}\n");
     for (name, size, sum) in blobs {
         text.push_str(&format!("{name} {size} {sum}\n"));
@@ -194,7 +197,7 @@ pub fn manifest_text(key: &str, blobs: &[(String, u64, String)]) -> String {
 }
 
 // Sample input: "flea-figures 1\nkey 00112233445566778899aabbccddeeff\nmath.bc 12 0123456789abcdef0123456789abcdef\nmermaid.bc 34 0123456789abcdef0123456789abcdef\n"; None for any other shape, an unknown blob or a missing one.
-pub fn parse_manifest(text: &str) -> Option<(String, Vec<(String, u64, String)>)> {
+pub fn parse_manifest(text: &str) -> Option<(String, Vec<BlobEntry>)> {
     let mut lines = text.lines();
     if lines.next()? != FORMAT {
         return None;

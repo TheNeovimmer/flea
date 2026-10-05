@@ -388,10 +388,10 @@ try:
     print(verdict)
     pin_ok, pin_detail = late_window_register_fail_pin()
     if pin_ok:
-        print("PASS a register that exits non-zero gives the case its FAIL verdict with no live waiter")
+        print("PASS a register that exits non-zero gives the case its failing verdict with no live waiter")
     else:
         failures += 1
-        print(f"FAIL a register that exits non-zero gives the case its FAIL verdict with no live waiter: {pin_detail}")
+        print(f"FAIL a register that exits non-zero gives the case its failing verdict with no live waiter: {pin_detail}")
     print(f"{len(cases) + len(world_cases) + 2} process ownership checks, {failures} failed; no real signals")
 finally:
     for child in root.iterdir():

@@ -189,6 +189,7 @@ function install() {
         var method = STRING_METHODS[i]
         String.prototype["counted_" + method] = (function (original, method) {
             return function () {
+                "use strict"
                 var result = original.apply(this, arguments)
                 if (method === "indexOf") {
                     var from = Math.max(0, Math.min(this.length, Number(arguments[1]) || 0))
@@ -210,6 +211,7 @@ function install() {
         var regexMethod = REGEX_METHODS[r]
         RegExp.prototype["counted_" + regexMethod] = (function (original) {
             return function (text) {
+                "use strict"
                 work += String(text).length
                 return original.apply(this, arguments)
             }
@@ -219,6 +221,7 @@ function install() {
         var arrayMethod = ARRAY_METHODS[a]
         Array.prototype["counted_" + arrayMethod] = (function (original, method) {
             return function () {
+                "use strict"
                 var result = original.apply(this, arguments)
                 work += method === "join" ? this.length + result.length : result.length
                 return result
