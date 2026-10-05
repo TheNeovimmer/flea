@@ -606,6 +606,16 @@ QtObject {
             return;
         }
         console.log("ok toUpperCase counted work=" + Work.work);
+        // A filter visits every element, so one that keeps none still costs its whole input.
+        Work.work = 0;
+        var filterInput = ["a", "", "b", ""];
+        var filterCode = Work.instrument("return lines.filter(function (line) { return line.length > 1 })", [], "filter probe");
+        if (new Function("lines", filterCode)(filterInput).length !== 0 || Work.work !== filterInput.length) {
+            console.log("FAIL filter work=" + Work.work);
+            Qt.exit(1);
+            return;
+        }
+        console.log("ok filter counted work=" + Work.work);
         var sizeRatio = 8;
         var marginNumerator = 3;
         var marginDenominator = 2;

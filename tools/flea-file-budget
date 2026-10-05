@@ -83,7 +83,7 @@ tests/columnscost.qml 416
 tests/columnsfolder.qml 399
 tests/quicklook-firstframe.qml 438
 tests/markdown-render.qml 795
-tests/markdown-linearity.qml 669
+tests/markdown-linearity.qml 679
 tests/markdown-preview-state.qml 469
 tests/markdown-tables.qml 401
 tests/quicklook-firstframe.js 214
