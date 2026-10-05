@@ -245,7 +245,8 @@ QtObject {
         built.root.keepScroll = true
         built.list.contentY = 0
         built.root.restoreScroll(begin)
-        check(built.list.contentY === smallEnd && built.root.keepScroll && built.root.heldY === smallEnd,
+        check(built.list.calls.length === 1 && built.list.calls[0][0] === placeBlockIdx
+            && built.list.contentY === smallEnd && built.root.keepScroll && built.root.heldY === smallEnd,
             "F52 a place past the end is clamped once the last block is built (got " + built.list.contentY + ")")
     }
 
