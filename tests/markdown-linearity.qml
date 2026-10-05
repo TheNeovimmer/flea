@@ -518,11 +518,28 @@ QtObject {
                 while (s.length < n)
                     s += "`a`b";
                 return s.slice(0, n);
+            },
+            // Every item holds a fence, so each parses its own parts.
+            fenceItems: function (n) {
+                var s = "";
+                while (s.length < n)
+                    s += "- item\n  ```js\n  var a = 1;\n  ```\n";
+                return s.slice(0, n);
+            },
+            // Quotes, items and fences alternate to the nesting limit and past it, so each level reads its lines again.
+            nestMixed: function (n) {
+                var head = "";
+                for (var d = 0; d < 24; d++)
+                    head += d % 2 === 0 ? "> " : "- ";
+                var s = "";
+                while (s.length < n)
+                    s += head + "```\n" + head + "code\n" + head + "```\n";
+                return s.slice(0, n);
             }
         };
         var names = ["codeDense", "codeOnly", "bangOpen", "bracketOpen", "angleOpen",
             "delimSoup", "quoteDeep", "listDeep", "backtickRun", "tagCost", "tagAttrs", "linkFrames", "blankList", "blankIndent", "spaceFlood", "spaceAlternate", "spaceTrail", "spaceIndent", "punctTail",
-            "htmlBlocks", "htmlLines", "htmlRow", "htmlNested"];
+            "htmlBlocks", "htmlLines", "htmlRow", "htmlNested", "fenceItems", "nestMixed"];
         Work.install();
         Work.work = 0;
         var uppercaseInput = "Note";

@@ -65,8 +65,8 @@ function run(check) {
     check("a fence left open holds no line for the final newline", blocks("```\naaa\n")[0].text, "aaa")
     check("a fence info string decodes escapes and references", blocks("``` f&ouml;o\\+bar\nx\n```\n")[0].info, "f\u00f6o+bar")
     check("a blank line inside indented code keeps its spaces", blocks("    a\n      \n    b\n")[0].text, "a\n  \nb")
-    check("a fence in an item stays verbatim for the renderer", blocks("- a\n- ```sh\n  b *c*\n  ```\n")[0].items[1], "```sh\nb *c*\n```")
-    check("a quote inside an item keeps its mark", blocks("- a\n  > q\n")[0].items[0], "a\n> q")
+    check("a fence in an item stays verbatim as a fence part", JSON.stringify(blocks("- a\n- ```sh\n  b *c*\n  ```\n")[0].parts[1]), JSON.stringify([{ type: "fence", text: "b *c*", info: "sh" }]))
+    check("a quote inside an item is a quote part after its prose", JSON.stringify(blocks("- a\n  > q\n")[0].parts[0]), JSON.stringify([{ type: "run", text: "a" }, { type: "quote", text: "q" }]))
     check("a bullet change starts a list", blocks("- a\n+ b\n").length, 2)
     check("a delimiter change starts a list", blocks("1. a\n2) b\n").length, 2)
     check("a thematic break line keeps its marks", blocks("Foo\n***\nbar\n")[0].text, "Foo\n***\nbar\n")
@@ -88,9 +88,9 @@ function run(check) {
     check("an image in a link keeps the link syntax", blocks("[![m](pic.png)](/u)\n")[0].text, "[![m](file:///home/gm/notes/pic.png)](/u)\n")
 
     // Advloop round 1: code stays raw inside containers, footnotes number in reading order, the rest of the inline pass holds its edges.
-    check("indented code in an item keeps its marks", blocks("- item\n\n      def f(**kwargs): __init__\n")[0].items[0], "item\n\n    def f(**kwargs): __init__")
-    check("indented code in an item keeps trailing spaces", blocks("- item\n\n      code  \n      more\n")[0].items[0], "item\n\n    code  \n    more")
-    check("indented code in a quote keeps its marks", blocks("> quote\n>\n>     code **x**\n")[0].text, "quote\n\n    code **x**")
+    check("indented code in an item keeps its marks as a fence part", JSON.stringify(blocks("- item\n\n      def f(**kwargs): __init__\n")[0].parts[0]), JSON.stringify([{ type: "run", text: "item\n" }, { type: "fence", text: "def f(**kwargs): __init__", info: "" }]))
+    check("indented code in an item keeps trailing spaces", blocks("- item\n\n      code  \n      more\n")[0].parts[0][1].text, "code  \nmore")
+    check("indented code in a quote keeps its marks as a fence part", JSON.stringify(blocks("> quote\n>\n>     code **x**\n")[0].parts), JSON.stringify([{ type: "run", text: "quote\n" }, { type: "fence", text: "code **x**", info: "" }]))
     check("a citation before a link label numbers first", json("a[^x] and [b[^y]](https://e.x)\n\n[^x]: X\n[^y]: Y\n"), JSON.stringify([
         { type: "run", text: "a<sup>1</sup> and <a href=\"https://e.x\"><font color=\"#c0caf5\">b<sup>2</sup></font></a>\n\n" },
         { type: "run", text: "---" }, { type: "list", ordered: false, start: 0, items: ["<sup>1</sup> X", "<sup>2</sup> Y"] }]))
@@ -104,7 +104,7 @@ function run(check) {
         { type: "figure", kind: "math", source: "x", display: true }, { type: "run", text: " &#62; y\n" }]))
     check("text after a mid-paragraph formula never opens a quote", json("a $$x$$ > b\n"), JSON.stringify([
         { type: "run", text: "a " }, { type: "figure", kind: "math", source: "x", display: true }, { type: "run", text: " &#62; b\n" }]))
-    check("a quote mark in an item still opens a quote", blocks("- > q\n")[0].items[0], "> q")
+    check("a quote mark in an item still opens a quote", JSON.stringify(blocks("- > q\n")[0].parts[0]), JSON.stringify([{ type: "quote", text: "q" }]))
     check("an angle destination never spans a line", blocks("[x](<a\\\nb>)\n")[0].text.indexOf("<a href"), -1)
     check("a destination with a backslash before a break is text", json("[x](<a\\\nb>)\n"), JSON.stringify([{ type: "run", text: "&#91;x&#93;(&#60;a<br />b&#62;)\n" }]))
     check("a title kept past a definition does not hide the next paragraph", json("intro\n\n[a]: /u\n'title'\n===\n"), JSON.stringify([{ type: "run", text: "intro\n\n===\n" }]))
@@ -148,9 +148,9 @@ function run(check) {
     check("a reference in a destination decodes with the whole table", blocks("[a](/&Dcaron;)\n")[0].text.indexOf("href=\"/\u010e\"") >= 0, true)
     check("a raw del tag is written as the s tag Qt always draws struck", blocks("<del>*foo*</del> <strike>a</strike> <s>b</s>\n")[0].text, "<s><em>foo</em></s> <s>a</s> <s>b</s>\n")
     // A tab that only partly indents code inside a container leaves its remaining columns as spaces, whatever the importer counts.
-    check("tabs in an item expand to their own stops", blocks("- foo\n\n\t\tbar\n")[0].items[0], "foo\n\n      bar")
-    check("tabs after a quote mark expand to their own stops", blocks(">\t\tfoo\n")[0].text, "      foo")
-    check("tabs after a list marker expand to their own stops", blocks("-\t\tfoo\n")[0].items[0], "      foo")
+    check("tabs in an item expand to their own stops", JSON.stringify(blocks("- foo\n\n\t\tbar\n")[0].parts[0]), JSON.stringify([{ type: "run", text: "foo\n" }, { type: "fence", text: "  bar", info: "" }]))
+    check("tabs after a quote mark expand to their own stops", JSON.stringify(blocks(">\t\tfoo\n")[0].parts), JSON.stringify([{ type: "fence", text: "  foo", info: "" }]))
+    check("tabs after a list marker expand to their own stops", JSON.stringify(blocks("-\t\tfoo\n")[0].parts[0]), JSON.stringify([{ type: "fence", text: "  foo", info: "" }]))
     // An item that opens on a blank line holds that one blank line and no more.
     check("a blank after an empty item ends its content", json("-\n\n  foo\n"), JSON.stringify([
         { type: "list", ordered: false, start: 0, items: [""] }, { type: "run", text: "  foo\n" }]))

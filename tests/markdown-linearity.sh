@@ -25,7 +25,7 @@ sample=0
 [ ! -f "$LINEARITY_COUNTER" ] || read -r sample < "$LINEARITY_COUNTER"
 sample=$((sample + 1))
 echo "$sample" > "$LINEARITY_COUNTER"
-for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent spaceFlood spaceAlternate spaceTrail spaceIndent punctTail htmlBlocks htmlLines htmlRow htmlNested; do
+for name in codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent spaceFlood spaceAlternate spaceTrail spaceIndent punctTail htmlBlocks htmlLines htmlRow htmlNested fenceItems nestMixed; do
     [ "$LINEARITY_CASE" != missing ] || [ "$name" != listDeep ] || continue
     [ "$LINEARITY_CASE" != short ] || [ "$sample" != 2 ] || [ "$name" != listDeep ] || continue
     large=8
@@ -64,7 +64,7 @@ STUB
             unknown) expected_message='FAIL invalid work sample in run 1: bogus' ;;
             diagnostics)
                 expected_status=0
-                expected_message='PASS 23 pathological inputs, 3 complete repetitions'
+                expected_message='PASS 25 pathological inputs, 3 complete repetitions'
                 ;;
         esac
         if [ "$status" -ne "$expected_status" ] || ! grep -qF "$expected_message" "$probe_root/output"; then
@@ -85,14 +85,17 @@ if [ "${1:-}" != "--probe" ]; then
     # Import the shipped text component without Quickshell's Theme dependency in the marker-column probe.
     text_module="$probe_root/markdown-text"
     mkdir -p "$text_module" || exit 1
-    cp ui/MarkdownText.qml "$text_module/" || exit 1
-    printf 'MarkdownText 1.0 MarkdownText.qml\nsingleton Theme 1.0 Theme.qml\n' > "$text_module/qmldir" || exit 1
+    mkdir -p "$text_module/js" || exit 1
+    cp ui/MarkdownText.qml ui/MarkdownList.qml "$text_module/" || exit 1
+    cp ui/js/MarkdownLists.js "$text_module/js/" || exit 1
+    printf 'MarkdownText 1.0 MarkdownText.qml\nMarkdownList 1.0 MarkdownList.qml\nsingleton Theme 1.0 Theme.qml\n' > "$text_module/qmldir" || exit 1
     cat > "$text_module/Theme.qml" <<'THEME'
 pragma Singleton
 import QtQuick
 QtObject {
     property var color: ({ foreground: "#ffffff" })
     property var font: ({ family: "sans-serif", body: 16 })
+    property var spacing: ({ gap: 8 })
 }
 THEME
     TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
@@ -115,7 +118,7 @@ run_once() {
     printf '%s\n' "$output" | sed -n 's/^qml: WORK //p'
 }
 
-expected=(codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent spaceFlood spaceAlternate spaceTrail spaceIndent punctTail htmlBlocks htmlLines htmlRow htmlNested)
+expected=(codeDense codeOnly bangOpen bracketOpen angleOpen delimSoup quoteDeep listDeep backtickRun tagCost tagAttrs linkFrames blankList blankIndent spaceFlood spaceAlternate spaceTrail spaceIndent punctTail htmlBlocks htmlLines htmlRow htmlNested fenceItems nestMixed)
 repetitions=3
 size_ratio=8
 margin_numerator=3

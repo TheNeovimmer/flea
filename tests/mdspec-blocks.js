@@ -23,9 +23,11 @@ function bareParagraphs(html) {
     })
 }
 
-// One item as list-item content: a task glyph becomes a checkbox, and a tight item keeps every paragraph bare.
-function itemHtml(text, qt, dir, loose) {
-    var html = Qt.fromExport(qt(text), dir, text)
+// One item as list-item content: its parts when it holds blocks, else Qt's drawing of its text; a task glyph becomes a checkbox, and a tight item keeps every paragraph bare.
+function itemHtml(block, i, qt, dir, loose) {
+    var parts = block.parts !== undefined && block.parts[i] ? block.parts[i] : null
+    var text = parts !== null ? (parts[0].type === "run" ? parts[0].text : "") : block.items[i]
+    var html = parts !== null ? blocksHtml(parts, qt, dir) : Qt.fromExport(qt(text), dir, text)
     var done = text.indexOf(TASK_DONE) === 0
     var box = done || text.indexOf(TASK_OPEN) === 0
     if (!loose)
@@ -54,7 +56,7 @@ function listHtml(block, qt, dir) {
         var loose = block.gaps !== undefined && block.gaps[i]
         closeTo(depth)
         if (marker === "") {
-            out += itemHtml(block.items[i], qt, dir, loose)
+            out += itemHtml(block, i, qt, dir, loose)
             continue
         }
         var ordered = marker !== "•"
@@ -69,7 +71,7 @@ function listHtml(block, qt, dir) {
             out += "<" + tagOf(ordered) + (ordered && start !== 1 ? " start=\"" + start + "\"" : "") + ">"
             open.push({ ordered: ordered })
         }
-        out += "<li>" + itemHtml(block.items[i], qt, dir, loose)
+        out += "<li>" + itemHtml(block, i, qt, dir, loose)
     }
     closeTo(-1)
     return out
@@ -117,6 +119,11 @@ function blockHtml(block, qt, dir) {
     return "<p>⟦" + block.type + "⟧</p>"
 }
 
+// A quote's content: its parts when it holds blocks, else Qt's drawing of its text.
+function quoteHtml(block, qt, dir) {
+    return block.parts !== undefined ? blocksHtml(block.parts, qt, dir) : Qt.fromExport(qt(block.text), dir, block.text)
+}
+
 // Quote blocks at depth 2 and more nest inside the quote before them; any other block closes every quote.
 function blocksHtml(blocks, qt, dir) {
     var out = ""
@@ -134,7 +141,7 @@ function blocksHtml(blocks, qt, dir) {
             out += "<blockquote>"
         for (; depth > want; depth--)
             out += "</blockquote>"
-        out += blocks[i].type === "quote" ? Qt.fromExport(qt(blocks[i].text), dir, blocks[i].text) : blockHtml(blocks[i], qt, dir)
+        out += blocks[i].type === "quote" ? quoteHtml(blocks[i], qt, dir) : blockHtml(blocks[i], qt, dir)
     }
     return out + "</blockquote>".repeat(depth)
 }
