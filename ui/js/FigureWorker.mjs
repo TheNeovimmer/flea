@@ -24,10 +24,24 @@ const HEX_RADIX = 16;
 const RED_SHIFT = 16;
 const GREEN_SHIFT = 8;
 const BYTE_MASK = 255;
+// The 32 bit FNV-1a offset basis and prime.
+const FNV_OFFSET = 0x811c9dc5;
+const FNV_PRIME = 0x01000193;
+
+// FNV-1a over a table's comma-joined text: a short stable stand-in for an advance table in the cache key, "0" for none.
+export function tableDigest(table) {
+    if (!table || table.length === 0)
+        return "0";
+    var text = table.join(",");
+    var hash = FNV_OFFSET;
+    for (var i = 0; i < text.length; i++)
+        hash = Math.imul(hash ^ text.charCodeAt(i), FNV_PRIME);
+    return (hash >>> 0).toString(HEX_RADIX);
+}
 
 export function themeKey(t) {
     return [t.bg, t.fg, t.accent || "", t.muted || "", t.line || "", t.surface || "",
-        t.border || "", t.font || "", t.bodyPx || 0, t.exPx || 0].join("|");
+        t.border || "", t.font || "", t.bodyPx || 0, t.exPx || 0, tableDigest(t.advances), tableDigest(t.boldAdvances)].join("|");
 }
 
 export function cacheKey(kind, source, t, display) {
@@ -625,5 +639,7 @@ export function renderFigure(kind, source, display, theme, apis) {
         throw new Error("diagram over 32 KiB");
     if (kind === "math")
         return postMath(apis.texToSvg(source, !!display), theme, !!display);
-    return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg, { font: theme.font, padding: MERMAID_PADDING }), theme);
+    // The advance tables are the theme font's own, per printable ASCII character in thousandths of an em, so the library sizes every label from the font that is drawn.
+    return postMermaid(apis.mermaidToSvg(source, theme.bg, theme.fg, { font: theme.font, padding: MERMAID_PADDING,
+        charAdvances: theme.advances, boldCharAdvances: theme.boldAdvances }), theme);
 }

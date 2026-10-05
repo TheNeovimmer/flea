@@ -28,6 +28,33 @@ Item {
         font.pixelSize: root.bodyPx
     }
 
+    // A diagram sizes each label from the font's advance of every printable ASCII character, regular and bold; maths sends none.
+    readonly property int advanceFirst: 32
+    readonly property int advanceLast: 126
+    // The helper receives the advances in thousandths of an em, so a font that settles late changes the request.
+    readonly property int advanceRounding: 1000
+    // The advance of each character from the first to the last, read through the metrics' own font so a font change re-runs the table.
+    function advanceTable(metrics) {
+        var table = [];
+        var px = metrics.font.pixelSize;
+        for (var code = root.advanceFirst; code <= root.advanceLast; code++)
+            table.push(Math.round(metrics.advanceWidth(String.fromCharCode(code)) / px * root.advanceRounding));
+        return table;
+    }
+    readonly property var advances: root.kind !== "mermaid" ? [] : root.advanceTable(regularMetrics)
+    readonly property var boldAdvances: root.kind !== "mermaid" ? [] : root.advanceTable(boldMetrics)
+    FontMetrics {
+        id: regularMetrics
+        font.family: root.fontFamily
+        font.pixelSize: root.bodyPx
+    }
+    FontMetrics {
+        id: boldMetrics
+        font.family: root.fontFamily
+        font.pixelSize: root.bodyPx
+        font.bold: true
+    }
+
     readonly property bool failed: root.error !== ""
     readonly property bool ready: root.svg !== ""
     readonly property bool working: root.ticket > 0
@@ -43,6 +70,7 @@ Item {
         return { bg: root.bgHex, fg: root.fgHex, accent: root.accentHex,
             font: root.fontFamily, bodyPx: root.bodyPx,
             exPx: Math.round(root.xHeight * root.xHeightRounding) / root.xHeightRounding,
+            advances: root.advances, boldAdvances: root.boldAdvances,
             muted: root.mutedHex, surface: root.surfaceHex };
     }
     // Nothing is asked until the figure is created, so its construction-time assignments cost no request.
@@ -88,6 +116,8 @@ Item {
     onFontFamilyChanged: root.schedule()
     onBodyPxChanged: root.schedule()
     onXHeightChanged: root.schedule()
+    onAdvancesChanged: root.schedule()
+    onBoldAdvancesChanged: root.schedule()
     onAskArmedChanged: root.schedule()
     // Entering the viewport requests an unsettled figure after layout.
     onInViewChanged: if (root.created && root.inView && root.askArmed && root.source !== "" && root.ticket === 0 && root.svg === "" && root.error === "") root.ask()

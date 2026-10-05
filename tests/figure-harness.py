@@ -292,7 +292,7 @@ QtObject {
                                          XDG_CACHE_HOME=str(box / "qml-cache")),
                                 capture_output=True, text=True, timeout=FRAGMENT_BOUND_SECONDS)
         component_output = result.stdout + result.stderr
-        component_ok = result.returncode == 0 and "figure-component: 9 check(s), 0 failed" in component_output
+        component_ok = result.returncode == 0 and "figure-component: 14 check(s), 0 failed" in component_output
         check(component_ok, "mx2a F31/F32 and mx2b F37/F38 one request per creation and per burst, an equal ask dropped, the exact failed-inline fence"
               + ("" if component_ok else ": " + component_output.strip()))
     else:
@@ -478,22 +478,35 @@ with tempfile.TemporaryDirectory(prefix="flea-vendor-targets-") as scratch:
         directory.mkdir(parents=True)
     shutil.copyfile(tree / "tools/vendor-js/build.sh", build_dir / "build.sh")
     (build_dir / "package.json").write_text("{}\n")
+    (build_dir / "patches").mkdir()
+    (build_dir / "patches/beautiful-mermaid+1.1.3.patch").write_text("\n")
     npm_receipt = layout / "npm.ran"
     (stubs / "npm").write_text(f'#!/bin/sh\n: > "{npm_receipt}"\n')
     # Sample input: npx esbuild math-entry.mjs --bundle --minify --outfile=math-bundle.mjs.
     (stubs / "npx").write_text('#!/bin/sh\nfor arg in "$@"; do\n    case "$arg" in\n'
                                '        --outfile=*) printf "same bytes\\n" > "${arg#--outfile=}" ;;\n    esac\ndone\n')
-    for stub in ("npm", "npx"):
+    # The patch stub answers by the file PATCH_SAYS names, and exits PATCH_EXIT.
+    (stubs / "patch").write_text('#!/bin/sh\ncat "$PATCH_SAYS" 2>/dev/null\nexit "${PATCH_EXIT:-0}"\n')
+    for stub in ("npm", "npx", "patch"):
         (stubs / stub).chmod(0o755)
 
-    def rebuild():
+    def rebuild(**extra):
         npm_receipt.unlink(missing_ok=True)
         return subprocess.run(["/bin/bash", str(build_dir / "build.sh")], capture_output=True, text=True,
-                              env=dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}"),
+                              env=dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}", **extra),
                               timeout=FRAGMENT_BOUND_SECONDS)
 
     for name in ("math", "mermaid"):
         (vendor / f"{name}.mjs").write_text("same bytes\n")
+    # Sample input: patch -p1 prints "Hunk #1 succeeded at 40 (offset 3 lines)." when its hunk moved.
+    moved = layout / "patch.moved"
+    moved.write_text("patching file dist/index.js\nHunk #1 succeeded at 40 (offset 3 lines).\n")
+    result = rebuild(PATCH_SAYS=str(moved))
+    check(result.returncode == 1 and "applied with an offset, fuzz or reject" in result.stdout,
+          "mermaid-r1 a patch hunk that moved fails the build")
+    result = rebuild(PATCH_EXIT="1")
+    check(result.returncode == 1 and "did not apply cleanly" in result.stdout,
+          "mermaid-r1 a patch that does not apply fails the build")
     result = rebuild()
     check(result.returncode == 0 and "both bundles reproduce byte for byte" in result.stdout,
           "mx2b F22 a rebuild identical to ui/vendor passes")
@@ -571,7 +584,8 @@ headless_contract = agents.split("The suites that drive the debug binary", 1)[1]
 check("needs nothing but a shell" not in headless_contract
       and all(word in headless_contract for word in ("no display, session or hardware", "python3", "Qt", "Quickshell", "quickjs-ng", "refuse loudly", "naming")),
       "mx2b F8 headless contract names its tools and missing-tool refusal")
-constraint = build.split("npx esbuild", 1)[0].split("npm ci || exit 1", 1)[1].strip().splitlines()
+# The comment lines directly above the first esbuild run state its one constraint.
+constraint = re.search(r"((?:^#[^\n]*\n)+)npx esbuild", build, re.M)[1].strip().splitlines()
 check(len(constraint) == 1 and len(constraint[0]) <= 140
       and all(word in constraint[0] for word in ("quickjs-ng", "ES modules", "neutral", "es2017", "minified", "exact command")),
       "mx2b F7 bundle constraint fits one comment line")

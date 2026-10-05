@@ -1,0 +1,2 @@
+# Generated minified bundles carry trailing spaces inside string literals, so git diff --check skips them.
+ui/vendor/*.mjs -whitespace

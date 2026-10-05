@@ -48,10 +48,24 @@ Item {
     property int helperExits: 0
     property int deadlineExpirations: 0
 
+    // Mirrors FigureWorker.tableDigest: FNV-1a over the table's comma-joined text, "0" for none.
+    function tableDigestOf(table) {
+        if (!table || table.length === 0)
+            return "0";
+        var fnvOffset = 0x811c9dc5;
+        var fnvPrime = 0x01000193;
+        var hexRadix = 16;
+        var text = table.join(",");
+        var hash = fnvOffset;
+        for (var i = 0; i < text.length; i++)
+            hash = Math.imul(hash ^ text.charCodeAt(i), fnvPrime);
+        return (hash >>> 0).toString(hexRadix);
+    }
+
     // Mirrors FigureWorker.cacheKey, including the display mode that changes formula layout.
     function cacheKeyOf(kind, source, t, display) {
         var key = [t.bg, t.fg, t.accent || "", t.muted || "", t.line || "", t.surface || "",
-            t.border || "", t.font || "", t.bodyPx || 0, t.exPx || 0].join("|");
+            t.border || "", t.font || "", t.bodyPx || 0, t.exPx || 0, root.tableDigestOf(t.advances), root.tableDigestOf(t.boldAdvances)].join("|");
         return kind + "\n" + key + "\n" + !!display + "\n" + source;
     }
 

@@ -1,0 +1,86 @@
+// The one runtime seam of the figure tests: they run under node, and under quickjs-ng where the CI image has no node.
+const underNode = typeof process !== "undefined" && process.versions !== undefined && process.versions.node !== undefined;
+const std = underNode ? null : await import("qjs:std");
+const os = underNode ? null : await import("qjs:os");
+const fs = underNode ? await import("node:fs") : null;
+const url = underNode ? await import("node:url") : null;
+const childProcess = underNode ? await import("node:child_process") : null;
+
+// The command line after the script name.
+export const argv = underNode ? process.argv.slice(2) : scriptArgs.slice(1);
+
+// Sample input: node reports file:///tmp/a%20b/x.mjs for /tmp/a b/x.mjs; quickjs-ng reports file:///tmp/a b/x.mjs, raw, so only node's form is decoded.
+export function pathOfUrl(fileUrl) {
+    return underNode ? url.fileURLToPath(fileUrl) : fileUrl.replace(/^file:\/\//, "");
+}
+
+// Sample input: ("/a/b", "../c/./d") answers /a/c/d; an absolute second part wins.
+export function resolve(base, part) {
+    const out = part.startsWith("/") ? [] : base.split("/").filter((s) => s !== "");
+    for (const piece of part.split("/")) {
+        if (piece === "..")
+            out.pop();
+        else if (piece !== "" && piece !== ".")
+            out.push(piece);
+    }
+    return "/" + out.join("/");
+}
+
+// An argument path made absolute against the working directory.
+export function absolute(path) {
+    const here = underNode ? process.cwd() : os.getcwd()[0];
+    return resolve(here, path);
+}
+
+// The directory of the tests folder's parent, wherever it is checked out, spaces and all.
+export function repoRoot(metaUrl) {
+    return resolve(pathOfUrl(metaUrl), "../..");
+}
+
+export function readText(path) {
+    if (underNode)
+        return fs.readFileSync(path, "utf8");
+    const text = std.loadFile(path);
+    if (text === null)
+        throw new Error("cannot read " + path);
+    return text;
+}
+
+// Import a module by absolute path; node needs a file URL, which escapes the path once.
+export async function importFile(path) {
+    return underNode ? await import(url.pathToFileURL(path).href) : await import(path);
+}
+
+// Run this script again with arguments under a time bound, answering {status, output}; status 0 is a clean exit.
+export function runSelf(metaUrl, args, boundSeconds) {
+    const script = pathOfUrl(metaUrl);
+    if (underNode) {
+        const child = childProcess.spawnSync(process.execPath, [script, ...args], { timeout: boundSeconds * 1000, encoding: "utf8" });
+        return { status: child.error ? -1 : child.status, output: child.error ? child.error.code : child.stdout.trim() };
+    }
+    const exe = os.readlink("/proc/self/exe")[0];
+    const [readEnd, writeEnd] = os.pipe();
+    const status = os.exec(["timeout", String(boundSeconds), exe, script, ...args], { block: true, stdout: writeEnd, stderr: writeEnd });
+    os.close(writeEnd);
+    const reader = std.fdopen(readEnd, "r");
+    const output = reader.readAsString().trim();
+    reader.close();
+    return { status, output };
+}
+
+// ELK's GWT code takes Error from global, and its in-process worker posts through setTimeout, which quickjs-ng lacks until named here.
+export function prepareEngine() {
+    globalThis.global = globalThis;
+    if (!underNode) {
+        globalThis.setTimeout = os.setTimeout;
+        globalThis.clearTimeout = os.clearTimeout;
+    }
+}
+
+// End the run with the failure count as its status.
+export function finish(failures) {
+    if (underNode)
+        process.exitCode = failures > 0 ? 1 : 0;
+    else if (failures > 0)
+        std.exit(1);
+}
