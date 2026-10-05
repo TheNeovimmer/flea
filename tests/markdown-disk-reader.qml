@@ -277,7 +277,9 @@ ShellRoot {
                 + ", smallest height seen while reloading " + Math.round(root.smallestHeight)
                 + ", real height " + Math.round(root.realHeight) + ", place " + JSON.stringify(root.placeBefore) + " at y " + Math.round(root.scrolledY)
                 + ", moves " + root.moves.join(" "))
-            root.check("the place is kept exactly across a same-length edit", root.placeOf(), root.placeBefore)
+            root.check("the place before the edit is built", root.placeBefore !== null, true)
+            if (root.placeBefore !== null)
+                root.check("the place is kept exactly across a same-length edit", root.placeOf(), root.placeBefore)
             root.finish()
         }
     }
