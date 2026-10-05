@@ -162,12 +162,12 @@ function run(check) {
         return Markdown.prepare(doc, dir, undefined, chrome)
     }
     check("a code span becomes the chrome chip",
-        styled("Use `load()` here.").indexOf('<code style="background-color:#181825">load&#40;&#41;</code>') >= 0, true)
+        styled("Use `load()` here.").indexOf('<code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>load&#40;&#41;<span style="font-size:chippad">&nbsp;</span></code>') >= 0, true)
     check("without chrome a span stays literal", Markdown.prepare("Use `load()` here.", dir).indexOf("`load()`") >= 0, true)
     check("a bad chrome leaves spans literal",
         Markdown.prepare("Use `load()` here.", dir, undefined, "red").indexOf("`load()`") >= 0, true)
     check("an unmatched run stays literal", styled("Use `load( here.").indexOf("`load(") >= 0, true)
-    check("one space each end is stripped", styled("Use ` x ` here.").indexOf(">x</code>") >= 0, true)
+    check("one space each end is stripped", styled("Use ` x ` here.").indexOf('><span style="font-size:chippad">&nbsp;</span>x<span style="font-size:chippad">&nbsp;</span></code>') >= 0, true)
     check("emphasis cannot form inside a span", styled("Use `*hi*` here.").indexOf("&#42;hi&#42;") >= 0, true)
     check("an ampersand escapes once", styled("Use `a & b` here.").indexOf("a &#38; b") >= 0, true)
     check("a URL inside backticks never resolves",
@@ -194,11 +194,11 @@ function run(check) {
     var escapedTable = Markdown.blocks("| f\\|oo |\n| ------ |\n| b `\\|` az |\n| b **\\|** im |\n", dir, chrome)[0]
     check("GFM 200 header unescapes pipe", escapedTable.head[0], "f&#124;oo")
     check("GFM 200 code span unescapes pipe", escapedTable.rows[0][0],
-        'b <code style="background-color:#181825">&#124;</code> az')
+        'b <code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>&#124;<span style="font-size:chippad">&nbsp;</span></code> az')
     check("GFM 200 strong row unescapes pipe", escapedTable.rows[1][0], "b <strong>&#124;</strong> im")
     // The backtick sends prose down the scan path, where only a table cell turns its pipe into an entity.
     check("a pipe outside a table stays prose", Markdown.prepare("a | `b`", dir, undefined, chrome),
-        'a | <code style="background-color:#181825">b</code>')
+        'a | <code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>b<span style="font-size:chippad">&nbsp;</span></code>')
     check("table splitting keeps other backslash pairs", Leaf.splitRow("| \\*literal\\* | \\`code\\` |").join("|"),
         "\\*literal\\*|\\`code\\`")
     var missingInlineRejected = false

@@ -142,6 +142,8 @@ ipc() {
         previewCloseState) if [ -n "${MD_GATE_NO_CENTRE:-}" ]; then printf '{"hovered":%s,"pressed":%s,"focused":%s}\\n' "$hit" "$held" "$focused"; else printf '{"hovered":%s,"pressed":%s,"focused":%s,"centre":"%s 50"}\\n' "$hit" "$held" "${MD_GATE_FOCUS_STUCK:-$focused}" "${MD_GATE_CENTRE_X:-$MD_GATE_CLOSE_X}"; fi ;;
         previewEndGap) if [[ " ${MD_GATE_FIT:-} " == *" $current_row "* ]]; then echo 0; elif [ "$scroll_y" -ge "$end_reach" ]; then echo "${MD_GATE_END_CUT:-0}"; else echo -1; fi ;;
         previewScrollY) echo "$scroll_y" ;;
+        viewContentY) if [ -n "${MD_GATE_COLUMN_STUCK:-}" ] && ! $opened; then echo 100; else echo "$scroll_y"; fi ;;
+        viewEndY) echo "${MD_GATE_VIEW_END:-$scroll_max}" ;;
     esac
 }
 . "$MD_GATE_CAPTURE"
@@ -179,6 +181,12 @@ ${MD_GATE_CASE:-case_cap_markdown}
     refusal({"MD_GATE_NO_SCROLL": "1"}, "capmarkdown: the wheel did not move the view", "mdfid B4 a scroll that moves nothing is refused")
     refusal({"MD_GATE_SCROLL_FAIL": "1"}, "capmarkdown: scroll down", "mdfid B4 a failed scroll call is refused")
     refusal({"MD_GATE_END_CUT": "80"}, "capmarkdown: the last block is cut at the end of the document", "mdfid N1 a picture that grew below the end is refused")
+    # The column's end is viewEndY: a wheel that never scrolls it, or a view that stops short, is refused naming both numbers.
+    refusal({"MD_GATE_COLUMN_STUCK": "1"}, "capmarkdown: notes.md column stopped at viewContentY 100, short of viewEndY 5760", "mdfid C6 a column wheel that never scrolls is refused")
+    refusal({"MD_GATE_VIEW_END": "99999"}, "capmarkdown: notes.md column stopped at viewContentY 5760, short of viewEndY 99999", "mdfid C6 a column that stops short of its end is refused")
+    near = subprocess.run(["/bin/bash", str(capture)], env=dict(env, MD_GATE_VIEW_END="5761"), text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=PROBE_TIMEOUT_SECONDS)
+    check(near.returncode == 0 and "CAPMARKDOWN quicklook=ok" in near.stdout, "mdfid C6 a column within one pixel of viewEndY is at its end")
     refusal({"MD_GATE_TAB_DEAD": "1"}, "capmarkdown: the close button never reported focused=true", "mdfid N2 a Tab that never reaches the close mark is refused")
     refusal({"MD_GATE_FOCUS_STUCK": "true"}, "capmarkdown: the close button never reported focused=false", "mdfid N2 a close mark focused at rest is refused")
 
@@ -195,7 +203,7 @@ ${MD_GATE_CASE:-case_cap_markdown}
 
     result = kinds_run({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed"})
     shots = [line.split()[1] for line in result.stdout.splitlines() if line.startswith("SHOT ")]
-    want = ["cap-markdown-kind-%s%s" % (name, tail) for name in kinds for tail in ("", "-end")] + ["cap-markdown-kind-column-nesting"]
+    want = ["cap-markdown-kind-%s%s" % (name, tail) for name in kinds for tail in ("", "-end")] + ["cap-markdown-kind-column-readme", "cap-markdown-kind-column-badges", "cap-markdown-kind-column-figures", "cap-markdown-kind-column-nesting"]
     check(result.returncode == 0 and shots == want
           and "CAPMARKDOWNKINDS tables=ok readme=ok badges=ok nesting=ok figures=ok column-nesting=ok" in result.stdout,
           "capmd the kinds case shoots each document, its end and the nested column in order")
@@ -209,7 +217,7 @@ ${MD_GATE_CASE:-case_cap_markdown}
     check(nesting.endswith("\n&#49;. ol\n\n- an item with a picture\n\n  ![bands](logo.png)\n\n> a quote with a picture\n>\n> ![bands](logo.png)\n\nAfter the pictures.\n")
           and "Inline maths $x^2 + y^2$ in a line." in nesting, "capmd nesting.md is the board text with the picture-in-block tail")
     check("| Left | Centre | Right |" in (fixture / "capmarkdownkinds" / "listing" / "tables.md").read_text()
-          and (fixture / "capmarkdownkinds" / "listing" / "badges.md").read_text().count("<img") == 16
+          and (fixture / "capmarkdownkinds" / "listing" / "badges.md").read_text().count("<img") == 24
           and '<div align="right">' in (fixture / "capmarkdownkinds" / "listing" / "readme.md").read_text(), "capmd tables, badges and readme carry their board text")
     kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=ready,5=failed"}, "capmarkdownkinds: want 3 ready figures", "capmd a figures document with four ready is refused")
     kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready"}, "capmarkdownkinds: want 1 failed figure", "capmd a figures document with no failed figure is refused")

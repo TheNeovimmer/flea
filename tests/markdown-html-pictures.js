@@ -32,7 +32,35 @@ function verdict(all) {
     badgeChecks(all, check);
     sizeChecks(all, check);
     headerChecks(all["26-readme-header.md"], all["27-break.md"], check);
+    gapChecks(all, check);
     return out;
+}
+
+// A picture followed by a picture block sits at the list spacing, a picture followed by text keeps the block gap.
+function gapChecks(all, check) {
+    var pic = all["36-pic-pic.md"];
+    if (pic !== undefined) {
+        var first = Base.blockOf(pic, "image");
+        var boxes = pic.blocks;
+        var secondImage = -1;
+        for (var k = 0; k < pic.geo.blocks.length; k++)
+            if (pic.geo.blocks[k].type === "image" && k !== first)
+                secondImage = k;
+        var firstInk = first < 0 ? null : boxes[first].box;
+        var secondInk = secondImage < 0 ? null : boxes[secondImage].box;
+        check("36 two pictures sit one block gap apart", firstInk !== null && secondInk !== null && Math.abs(secondInk.y0 - firstInk.y1 - 1 - pic.geo.blockGap) <= EDGE_SLACK);
+    }
+    var single = all["32-natural-single.md"];
+    if (single !== undefined) {
+        var at = Base.blockOf(single, "image");
+        var runAt = -1;
+        for (var r = 0; r < single.geo.blocks.length; r++)
+            if (single.geo.blocks[r].type === "run")
+                runAt = r;
+        var picInk = at < 0 ? null : single.blocks[at].box;
+        var runInk = runAt < 0 ? null : single.blocks[runAt].box;
+        check("32 a picture followed by text keeps two block gaps", picInk !== null && runInk !== null && runInk.y0 - picInk.y1 - 1 >= 2 * single.geo.blockGap - EDGE_SLACK);
+    }
 }
 
 // A local image inside raw HTML draws as a picture in place, with no Markdown image text and no stray closing tag drawn.
@@ -79,7 +107,8 @@ function headerChecks(f, broken, check) {
                 return i;
         return -1;
     }
-    var h = holding("Flea</h1>"), p = holding("A file manager"), after = holding("A line after a break.");
+    var h = holding("Flea"), p = holding("A file manager"), after = holding("A line after a break.");
+    check("26 the HTML heading is a heading block", h >= 0 && f.geo.blocks[h].type === "heading");
     check("26 the heading and the paragraph are blocks of their own", h >= 0 && p >= 0 && h !== p);
     check("26 the paragraph sits below the heading across a gap",
         h >= 0 && p >= 0 && f.geo.blocks[p].y > f.geo.blocks[h].y + f.geo.blocks[h].h);

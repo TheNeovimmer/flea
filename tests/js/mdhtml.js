@@ -5,6 +5,8 @@
 .import "../../ui/js/MdRun.js" as Run
 .import "../../ui/js/MdRefs.js" as Refs
 .import "../../ui/js/MdLeaf.js" as Leaf
+.import "../../ui/js/MdEscape.js" as Escape
+.import "sourcefixture.js" as Source
 
 function run(check) {
     var dir = "/home/u/docs"
@@ -261,4 +263,20 @@ function run(check) {
     check("F16 title accepted", Blocks.collectReferences('[foo]:\nbar "title"').defs.foo, 'bar')
     check("F17 four spaces", Blocks.collectReferences("[^1]: a\n    more").notes['1'].text, 'a\nmore')
     check("F17 eight spaces", Blocks.collectReferences("[^1]: a\n        more").notes['1'].text, 'a\nmore')
+    var htmlH1 = Markdown.blocks('<h1 align="center">Flea</h1>', dir, "#181825", ink)[0]
+    var mdH1 = Markdown.blocks("# Flea", dir, "#181825", ink)[0]
+    check("mdfid2 HTML h1 is a heading block", htmlH1.type, "heading")
+    check("mdfid2 HTML h1 level is 1", htmlH1.level, 1)
+    check("mdfid2 HTML h1 text matches Markdown h1", htmlH1.text, mdH1.text)
+    check("mdfid2 HTML h1 keeps its centre", htmlH1.align, "center")
+    var htmlH2 = Markdown.blocks("<h2>Sub</h2>", dir, "#181825", ink)[0]
+    var mdH2 = Markdown.blocks("## Sub", dir, "#181825", ink)[0]
+    check("mdfid2 HTML h2 level is 2", htmlH2.level, 2)
+    check("mdfid2 HTML h2 text matches Markdown h2", htmlH2.text, mdH2.text)
+    // A no-break space in a span MarkdownText sizes to 4 px at body 14, pads the chip inside its background.
+    var chipPad = '<span style="font-size:chippad">&nbsp;</span>'
+    check("mdfid2 code chip pads both sides", Markdown.prepare("Use `x` here.", dir, undefined, "#181825", ink).indexOf(chipPad + "x" + chipPad) >= 0, true)
+    // The text sizing the pad quotes the parser's mark, so a renamed mark leaves a pad Qt draws at a whole cell.
+    check("MarkdownText sizes the mark the parser emits", Source.source("ui/MarkdownText.qml").indexOf("'" + Escape.CHIP_PAD_MARK + "'") >= 0, true)
+    check("the parser's pad is the mark and one no-break space", Escape.chipPad(), Escape.CHIP_PAD_MARK + "&nbsp;</span>")
 }

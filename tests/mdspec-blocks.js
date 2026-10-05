@@ -3,6 +3,11 @@
 // The spec harness's adapter: Flea's block model, plus Qt's drawing of each block's text, as the HTML a reader would see.
 .import "mdspec-qt.js" as Qt
 
+// The chip pads its background with a no-break space span, so the comparison drops them before Qt draws.
+function stripPads(text) {
+    return String(text).replace(/<span style="font-size:chippad">&nbsp;<\/span>/g, "")
+}
+
 // Sample input: "<p>a <em>b</em></p>" answers "a <em>b</em>"; anything else is returned whole.
 function unwrap(html) {
     var m = /^<p>([\s\S]*)<\/p>$/.exec(html)
@@ -27,7 +32,7 @@ function bareParagraphs(html) {
 function itemHtml(block, i, qt, dir, loose) {
     var parts = block.parts !== undefined && block.parts[i] ? block.parts[i] : null
     var text = parts !== null ? (parts[0].type === "run" ? parts[0].text : "") : block.items[i]
-    var html = parts !== null ? blocksHtml(parts, qt, dir) : Qt.fromExport(qt(text), dir, text)
+    var html = parts !== null ? blocksHtml(parts, qt, dir) : Qt.fromExport(qt(stripPads(text)), dir, text)
     var done = text.indexOf(TASK_BOX_DONE) === 0
     var box = done || text.indexOf(TASK_BOX_OPEN) === 0
     if (!loose)
@@ -84,7 +89,7 @@ function tableHtml(block, qt, dir) {
         var out = ""
         for (var c = 0; c < block.cols; c++) {
             var align = ALIGNED.hasOwnProperty(block.aligns[c]) ? " align=\"" + block.aligns[c] + "\"" : ""
-            out += "<" + tag + align + ">" + (c < row.length ? unwrap(Qt.fromExport(qt(row[c]), dir, row[c])) : "") + "</" + tag + ">"
+            out += "<" + tag + align + ">" + (c < row.length ? unwrap(Qt.fromExport(qt(stripPads(row[c])), dir, row[c])) : "") + "</" + tag + ">"
         }
         return "<tr>" + out + "</tr>"
     }
@@ -103,9 +108,9 @@ function fenceHtml(block) {
 
 function blockHtml(block, qt, dir) {
     if (block.type === "heading")
-        return "<h" + block.level + ">" + unwrap(Qt.fromExport(qt(block.text), dir, block.text)) + "</h" + block.level + ">"
+        return "<h" + block.level + ">" + unwrap(Qt.fromExport(qt(stripPads(block.text)), dir, block.text)) + "</h" + block.level + ">"
     if (block.type === "run")
-        return Qt.fromExport(qt(block.text), dir, block.text)
+        return Qt.fromExport(qt(stripPads(block.text)), dir, block.text)
     if (block.type === "list")
         return listHtml(block, qt, dir)
     if (block.type === "table")
@@ -121,7 +126,7 @@ function blockHtml(block, qt, dir) {
 
 // A quote's content: its parts when it holds blocks, else Qt's drawing of its text.
 function quoteHtml(block, qt, dir) {
-    return block.parts !== undefined ? blocksHtml(block.parts, qt, dir) : Qt.fromExport(qt(block.text), dir, block.text)
+    return block.parts !== undefined ? blocksHtml(block.parts, qt, dir) : Qt.fromExport(qt(stripPads(block.text)), dir, block.text)
 }
 
 // Quote blocks at depth 2 and more nest inside the quote before them; any other block closes every quote.

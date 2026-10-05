@@ -18,8 +18,9 @@ Item {
 
     // The drawn run text this view built, else null for any other kind or a maths run.
     readonly property Item runText: view.block.type === "run" && view.block.maths === undefined ? (kind.item as Item) : null
-    // A picture followed by another block keeps the pane's block gap under it too, as a paragraph does, so what follows never touches it.
-    readonly property int pictureGap: (view.block.type === "images" || view.block.type === "image") && view.blockIndex < view.blockCount - 1 ? view.preview.blockGap : 0
+    // A picture followed by a picture block sits at the list spacing; a picture followed by text keeps the block gap, so what follows never touches it.
+    readonly property bool nextIsPicture: view.nextBlock !== null && view.nextBlock !== undefined && (view.nextBlock.type === "image" || view.nextBlock.type === "images" || view.nextBlock.type === "remote" || view.nextBlock.type === "figure")
+    readonly property int pictureGap: (view.block.type === "images" || view.block.type === "image") && view.blockIndex < view.blockCount - 1 && !view.nextIsPicture ? view.preview.blockGap : 0
     // The blocks beside this one in the list that holds it: the document's list at the top, the item's or quote's parts inside one.
     property var siblings: null
     // Two consecutive figures share one canvas margin each, so the upper lends both back and the list's spacing reads exact.
@@ -60,6 +61,8 @@ Item {
             font.bold: view.block.type === "heading"
             // h1 and h2 take the bright foreground; deeper levels and body stay the foreground.
             color: view.block.type === "heading" && view.block.level <= view.preview.boardHeadings.length ? Theme.color.foregroundBright : Theme.color.foreground
+            // An HTML heading keeps its align attribute; Markdown headings stay left.
+            horizontalAlignment: view.block.align === "center" ? Text.AlignHCenter : view.block.align === "right" ? Text.AlignRight : Text.AlignLeft
         }
     }
 
@@ -80,6 +83,8 @@ Item {
             accentHex: view.preview.accentHex
             mutedHex: view.preview.mutedHex
             surfaceHex: view.preview.surfaceHex
+            fencePadX: view.preview.fencePadX
+            fencePadY: view.preview.fencePadY
             font.pixelSize: view.preview.bodyPx
         }
     }
@@ -146,6 +151,8 @@ Item {
                 mutedHex: view.preview.mutedHex
                 surfaceHex: view.preview.surfaceHex
                 fallbackColor: view.preview.codeSurface
+                fencePadX: view.preview.fencePadX
+                fencePadY: view.preview.fencePadY
                 fontFamily: Theme.font.family
                 bodyPx: view.preview.bodyPx
             }

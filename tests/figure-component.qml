@@ -1,4 +1,5 @@
 import QtQuick
+import "markdown-board.js" as Board
 
 // Exercise the real figure component against a recording ticket service; tests/figure-harness.py supplies the stub singletons.
 Item {
@@ -144,10 +145,12 @@ Item {
             "a change on a created figure requests=" + FigureService.requests.length + ", want 1 carrying #555555");
         probe.check((FigureService.requests[0].advances || []).length === 0 && (FigureService.requests[0].boldAdvances || []).length === 0, "a formula request carries no advance table");
         FigureService.done(figure.ticket, "", "inline render failed");
-        var gap = Theme.spacing.gap;
-        var want = measure.implicitWidth + probe.fenceSides * gap;
+        // The host hands the figure the preview's fence pad; the board's 12 at this body is what it is handed.
+        var fencePadX = Board.boardPx(Board.BOARD_FENCE_PAD_X, figure.bodyPx);
+        figure.fencePadX = fencePadX;
+        var want = measure.implicitWidth + probe.fenceSides * fencePadX;
         probe.check(figure.failed && measure.implicitWidth > 0 && figure.implicitWidth === want,
-            "failed inline implicitWidth=" + figure.implicitWidth + ", want " + want + " (text " + measure.implicitWidth + " plus two gaps of " + gap + ")");
+            "failed inline implicitWidth=" + figure.implicitWidth + ", want " + want + " (text " + measure.implicitWidth + " plus two fence pads of " + fencePadX + ")");
         FigureService.requests = [];
         probe.diagramArmed = true;
         diagram.askArmed = true;

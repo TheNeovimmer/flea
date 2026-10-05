@@ -211,21 +211,24 @@ Item {
     readonly property string fallbackBody: root.source.length > root.fallbackChars
         ? root.source.slice(0, root.fallbackChars) + "… (" + (root.source.length - root.fallbackChars) + " more)"
         : root.source
-    // The fence pads every edge by one gap, so a width or a height adds both of its sides.
-    readonly property real fencePadding: Theme.spacing.gap
-    readonly property real fenceBothSides: fallbackItem.anchors.leftMargin + fallbackItem.anchors.rightMargin
+    // The fence recipe, so fallback text sits where a fenced block does: the host hands down the preview's own fencePadX and fencePadY.
+    property int fencePadX: 0
+    property int fencePadY: 0
     Rectangle {
         id: fallback
         visible: root.failed
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: fallbackItem.implicitHeight + root.fenceBothSides
+        height: fallbackItem.implicitHeight + 2 * root.fencePadY
         color: root.fallbackColor
         Text {
             id: fallbackItem
             anchors.fill: parent
-            anchors.margins: root.fencePadding
+            anchors.leftMargin: root.fencePadX
+            anchors.rightMargin: root.fencePadX
+            anchors.topMargin: root.fencePadY
+            anchors.bottomMargin: root.fencePadY
             text: root.fallbackBody
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
@@ -244,7 +247,7 @@ Item {
     readonly property real inlineWidth: root.inline && inlineFigure.implicitHeight > 0
         ? Math.round(inlineFigure.implicitWidth * (root.bodyPx / inlineFigure.implicitHeight)) : 0
 
-    implicitWidth: root.inline ? (root.failed ? fallbackItem.implicitWidth + root.fenceBothSides : root.inlineWidth) : root.width
+    implicitWidth: root.inline ? (root.failed ? fallbackItem.implicitWidth + 2 * root.fencePadX : root.inlineWidth) : root.width
     // A failed inline still draws its fence, so it sizes to the fence rather than the line it never became.
     implicitHeight: root.inline ? (root.failed ? fallback.height : root.bodyPx)
         : root.failed ? fallback.height : root.fitHeight

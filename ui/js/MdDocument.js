@@ -7,6 +7,7 @@
 .import "MdHtmlImage.js" as HtmlImage
 .import "MdParagraphs.js" as MdParagraphs
 .import "MdHtmlBlock.js" as HtmlBlock
+.import "MdHtmlHeading.js" as HtmlHeading
 .import "MdItems.js" as Items
 .import "MdChunks.js" as Chunks
 .import "MdResolve.js" as Res
@@ -86,14 +87,38 @@ function writer(state, dir, chrome, ink, pass, shared) {
         for (var b = 0; b < blocks.length; b++)
             out.push(blocks[b])
     }
+    // The blocks an HTML heading draws as, its leading picture an image block; null when its drawn text, references resolved, still holds a picture.
+    function headingBlocks(head) {
+        var blocks = []
+        var inner = head.inner
+        var logo = head.align === "right" ? null : HtmlHeading.headingPicture(inner, dir)
+        if (logo !== null) {
+            if (head.align === "center")
+                logo.block.align = "center"
+            blocks.push(logo.block)
+            inner = logo.rest
+            if (inner.trim().length === 0)
+                return blocks
+        }
+        var text = inlineOf(Leaf.headingSafe(inner))
+        if (HtmlHeading.DRAWN_PICTURE.test(text))
+            return null
+        var headBlock = { type: "heading", level: head.level, text: text }
+        if (head.align !== null)
+            headBlock.align = head.align
+        blocks.push(headBlock)
+        return blocks
+    }
     function flushRun() {
         var plain = []
+        var depth = 0
         // cutAfter says after which blanks the paragraph ends; open HTML across the blank joins it instead.
         var cut = MdParagraphs.cutAfter(run)
         function flushPlain() {
             if (plain.length > 0)
                 pushRun(plain)
             plain = []
+            depth = 0
         }
         for (var i = 0; i < run.length; i++) {
             if (run[i].trim().length === 0) {
@@ -101,6 +126,21 @@ function writer(state, dir, chrome, ink, pass, shared) {
                     flushPlain()
                 else
                     plain.push(run[i])
+                continue
+            }
+            // A heading in a lone wrapper lifts with it; one in other open HTML stays in its run, so no wrapper is ever split.
+            var lifted = depth === 0 ? HtmlHeading.headingUnit(run, i) : null
+            var htmlHead = lifted !== null ? lifted.head : depth === 0 ? HtmlBlock.htmlHeading(run[i]) : null
+            var drawn = htmlHead !== null ? headingBlocks(htmlHead) : null
+            if (drawn !== null) {
+                pushRun(plain)
+                plain = []
+                depth = 0
+                pushAll(drawn)
+                if (lifted !== null) {
+                    i = lifted.end
+                    plain = lifted.wrapper.slice()
+                }
                 continue
             }
             var solo = (i === 0 || run[i - 1].trim().length === 0)
@@ -113,6 +153,7 @@ function writer(state, dir, chrome, ink, pass, shared) {
                     image.alt = Res.plainText(inlineOf(image.alt, false, false, false, true))
                 pushRun(plain)
                 plain = []
+                depth = 0
                 out.push(image !== null ? image : unit.block)
                 if (unit !== null) {
                     i = unit.end
@@ -121,6 +162,7 @@ function writer(state, dir, chrome, ink, pass, shared) {
                 }
             } else {
                 plain.push(run[i])
+                depth = HtmlHeading.nestDepth(run[i], depth)
             }
         }
         flushPlain()

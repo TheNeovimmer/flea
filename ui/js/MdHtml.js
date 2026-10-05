@@ -211,7 +211,10 @@ function attrKept(name, value, tagName) {
 
 // The opening of an inline code chip; an unusable chrome leaves a plain code tag.
 function chipOpen(chrome) {
-    return CHROME_PATTERN.test(String(chrome || "")) ? '<code style="background-color:' + chrome + '">' : "<code>"
+    return CHROME_PATTERN.test(String(chrome || "")) ? '<code style="background-color:' + chrome + '">' + MdEscape.chipPad() : "<code>"
+}
+function chipClose(chrome) {
+    return CHROME_PATTERN.test(String(chrome || "")) ? MdEscape.chipPad() + "</code>" : "</code>"
 }
 
 function escapeAttr(value) {
@@ -238,7 +241,7 @@ function sanitizeTag(tag, dir, tokens, chrome) {
         return { emit: head.closing ? "</b>" : "<b>" + DISCLOSURE_OPEN + " ", drop: null }
     // kbd and code are the inline code chip, never a bare tag.
     if (name === "kbd" || name === "code")
-        return { emit: head.closing ? "</code>" : chipOpen(chrome), drop: null }
+        return { emit: head.closing ? chipClose(chrome) : chipOpen(chrome), drop: null }
     if (head.closing)
         return { emit: "</" + name + ">", drop: null }
     if (!head.validAttrs)

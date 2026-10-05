@@ -4,6 +4,7 @@ Qt.include("js/MdUrl.js");
 Qt.include("js/MdHtml.js");
 Qt.include("js/MdHtmlImage.js");
 Qt.include("js/MdHtmlBlock.js");
+Qt.include("js/MdHtmlHeading.js");
 Qt.include("js/MdEscape.js");
 Qt.include("js/MdInline.js");
 Qt.include("js/MdLink.js");
@@ -28,9 +29,10 @@ Qt.include("js/MdBlocks.js");
 var Format = { date: date, fileUri: fileUri };
 var MdUrl = { canonicalUrl: canonicalUrl, classifyImage: classifyImage, placeholder: placeholder, srcsetPick: srcsetPick, strippedTarget: strippedTarget, targetAllowed: targetAllowed };
 var MdHtml = { closeToken: closeToken, openToken: openToken, documentText: documentText, normalizedTarget: normalizedTarget, readTag: readTag, sanitizeTag: sanitizeTag, tagHead: tagHead, MAX_TAG_LENGTH: MAX_TAG_LENGTH };
-var MdHtmlImage = { imageUnit: imageUnit, rawImage: rawImage, isCentred: isCentred, linkOf: linkOf, LEADING_BREAK: LEADING_BREAK };
-var MdHtmlBlock = { splitHtmlImages: splitHtmlImages, separateBlocks: separateBlocks };
-var MdEscape = { escapeText: escapeText, isAsciiPunct: isAsciiPunct };
+var MdHtmlImage = { imageUnit: imageUnit, rawImage: rawImage, isCentred: isCentred, linkOf: linkOf, wrapperTail: wrapperTail, LEADING_BREAK: LEADING_BREAK, WRAPPER_OPEN: WRAPPER_OPEN };
+var MdHtmlBlock = { splitHtmlImages: splitHtmlImages, separateBlocks: separateBlocks, htmlHeading: htmlHeading, NESTING_TAG: NESTING_TAG };
+var MdHtmlHeading = { DRAWN_PICTURE: DRAWN_PICTURE, headingUnit: headingUnit, headingPicture: headingPicture, nestDepth: nestDepth };
+var MdEscape = { chipPad: chipPad, escapeText: escapeText, isAsciiPunct: isAsciiPunct };
 var MdInline = { INTERVAL_STRIDE: INTERVAL_STRIDE, MATH_SPAN: MATH_SPAN, isSpace: isSpace, codeHtml: codeHtml, escapeDecodedText: escapeDecodedText, escapeHtmlText: escapeHtmlText, isPunct: isPunct, linkHtml: linkHtml, spanIntervals: spanIntervals };
 var MdLink = { angleClose: angleClose, normalizeLabel: normalizeLabel, readAutolink: readAutolink, readBarelink: readBarelink, readInlineTarget: readInlineTarget, readLabelRef: readLabelRef };
 var MdRefs = { readDefinition: readDefinition, hideTitle: hideTitle, storeDefinition: storeDefinition, readDefinitionParts: readDefinitionParts, readDefinitionTarget: readDefinitionTarget, titleEnd: titleEnd, readFootnoteDefinition: readFootnoteDefinition, killDefinition: killDefinition, readFootnoteRef: readFootnoteRef, skipDropContent: skipDropContent, definitionAt: definitionAt, hideDefinition: hideDefinition };
@@ -72,6 +74,7 @@ var Maths = MdMath;
 var Html = MdHtml;
 var HtmlImage = MdHtmlImage;
 var HtmlBlock = MdHtmlBlock;
+var HtmlHeading = MdHtmlHeading;
 
 WorkerScript.onMessage = function (msg) {
     // Liveness is the pane's protocol: only a request carrying a head field is acked and beaten, other askers see full replies alone.

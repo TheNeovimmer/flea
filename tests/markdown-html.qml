@@ -5,6 +5,7 @@ import Quickshell
 import "flea" as Flea
 import "markdown-html.js" as Checks
 import "markdown-html-pictures.js" as Pictures
+import "markdown-html-chips.js" as Chips
 
 // tests/markdown-html.sh's harness: each fixture document through the real ui/PreviewMarkdown.qml, grabbed offscreen and judged on what it draws.
 ShellRoot {
@@ -225,6 +226,7 @@ ShellRoot {
         ctx.drawImage(shot, 0, 0)
         var px = ctx.getImageData(0, 0, shell.paneW, shell.paneH).data
         allFacts[geo.name] = Checks.facts(px, geo)
+        allFacts[geo.name].chipRuns = geo.name === "37-chips.md" ? Chips.chips(px, shell.paneW, shell.paneH, geo.chrome, geo.blocks[0]) : []
         shell.armed = false
         shot.source = ""
         Qt.callLater(shell.next)
@@ -233,7 +235,7 @@ ShellRoot {
     function finish() {
         shell.done = true
         var chromeEqualsGround = String(md.chromeHex).toLowerCase() === "#101315"
-        var results = Checks.verdict(allFacts).concat(Pictures.verdict(allFacts))
+        var results = Checks.verdict(allFacts).concat(Pictures.verdict(allFacts)).concat(Chips.verdict(allFacts))
         if (chromeEqualsGround)
             results.push(["the theme chrome differs from the harness ground", false])
         var failures = 0

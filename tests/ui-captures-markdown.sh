@@ -87,6 +87,8 @@ capmarkdown_close_poll_s=0.05
 # A notch is 288 px: three reach the figures region below the quote and tables, twelve more clamp at the tail with the picture and the placeholder.
 capmarkdown_notches_mid=3
 capmarkdown_notches_end=12
+# The column is at its end when viewContentY is within this many pixels of viewEndY.
+capmarkdown_end_slack=1
 # Paragraphs of about 40 px rendered and two source lines each, so both views overflow a 2560 x 1440 card by more than the mid notches.
 capmarkdown_notes=60
 case_cap_markdown() {
@@ -238,7 +240,9 @@ PY
     [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdown: Escape did not close Source Quick Look"
     capmarkdown_wait_column_rendered
     shot "cap-markdown-column-after-flip"
-    printf 'CAPMARKDOWN quicklook=ok source=ok column=ok column-after-flip=ok\n'
+    capmarkdown_column_reach_end "notes.md"
+    shot "cap-markdown-column-end"
+    printf 'CAPMARKDOWN quicklook=ok source=ok column=ok column-after-flip=ok column-end=ok\n'
     kill_flea
 }
 # The 96 by 48 PNG of four colour bands both the README logo and the figures document point at.
@@ -285,6 +289,12 @@ Hidden body text.
 <script>alert(1)</script>
 <!-- a comment -->
 <div align="right">Right aligned</div>
+
+<div align="center">
+<h2>Wrapped heading</h2>
+</div>
+
+<h2 align="center"><img src="logo.png" width="120" alt="banner"><br>Picture heading</h2>
 MD
     base64 -d > "$dir/logo.png" <<< "$capmarkdownkinds_png_b64"
     base64 -d > "$dir/bands.png" <<< "$capmarkdownkinds_png_b64"
@@ -292,7 +302,7 @@ MD
         printf '<p align="center">\n'
         for width in 70 96 54 120; do printf '  <a href="https://example.com/%s"><img src="logo.png" width="%s" height="20" alt="b%s"></a>\n' "$width" "$width" "$width"; done
         printf '</p>\n\n<p>\n'
-        for index in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '  <img src="logo.png" width="110" height="20" alt="w%s">\n' "$index"; done
+        for index in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do printf '  <img src="logo.png" width="110" height="20" alt="w%s">\n' "$index"; done
         printf '</p>\n'
     } > "$dir/badges.md"
     cat > "$dir/nesting.md" <<'MD'
@@ -375,6 +385,31 @@ capmarkdownkinds_reach_end() {
     done
     fail "capmarkdownkinds: $name never reached its end after $capmarkdownkinds_end_runs wheel runs"
 }
+# Wheels the preview column to its end: the pointer goes over the right side so the wheel scrolls the preview, and viewContentY stops at viewEndY.
+capmarkdown_column_reach_end() {
+    local name="$1" run before after end wx wy ww wh px py
+    read -r wx wy ww wh < <(window_box) || fail "capmarkdown: native window coordinates unavailable for $name"
+    px=$((wx + ww * 9 / 10)); py=$((wy + wh / 2))
+    omarchy-drive move "$px" "$py" >/dev/null || fail "capmarkdown: pointer move to the preview column failed on $name"
+    settle
+    for ((run = 1; ; run++)); do
+        before="$(ipc viewContentY)"
+        end="$(ipc viewEndY)"
+        [[ "$before" =~ ^-?[0-9]+$ && "$end" =~ ^-?[0-9]+$ ]] || fail "capmarkdown: viewContentY answered [$before] viewEndY [$end] for $name"
+        (( before >= end - capmarkdown_end_slack )) && return 0
+        (( run < capmarkdownkinds_end_runs )) || break
+        omarchy-drive scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))" >/dev/null || fail "capmarkdown: scroll down failed on $name"
+        settle
+        after="$(ipc viewContentY)"
+        [[ "$after" =~ ^-?[0-9]+$ ]] || fail "capmarkdown: viewContentY answered [$after] for $name"
+        [[ "$after" == "$before" ]] || continue
+        # A wheel run still in flight reads as stopped once; a view still short of its end after a second settle never reached it.
+        settle
+        after="$(ipc viewContentY)"
+        [[ "$after" != "$before" ]] || fail "capmarkdown: $name column stopped at viewContentY $after, short of viewEndY $(ipc viewEndY)"
+    done
+    fail "capmarkdown: $name never reached its column end after $capmarkdownkinds_end_runs wheel runs: viewContentY $before, viewEndY $end"
+}
 # Shoots the open document, then its tail when it is taller than the card, then closes Quick Look.
 # Sample input: previewEndGap answers 0 when the last block and its inset are whole at the top, so nothing scrolls; any other number, -1 included, means the document runs past the card.
 capmarkdownkinds_shoot() {
@@ -449,10 +484,12 @@ case_cap_markdown_kinds() {
         results+="${name%.md}=ok "
     done
     switch_view columns
-    goto_row "$(row_index_of nesting.md)"
-    settle
-    capmarkdown_wait_column_rendered
-    shot "cap-markdown-kind-column-nesting"
+    for name in readme.md badges.md figures.md nesting.md; do
+        goto_row "$(row_index_of "$name")"
+        settle
+        capmarkdown_wait_column_rendered
+        shot "cap-markdown-kind-column-${name%.md}"
+    done
     printf 'CAPMARKDOWNKINDS %scolumn-nesting=ok\n' "$results"
     kill_flea
 }

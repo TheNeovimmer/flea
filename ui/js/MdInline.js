@@ -119,7 +119,7 @@ function codeHtml(content, chrome, kind) {
         return null
     var tag = kind === "math" ? '<code data-math="inline" style="background-color:' + chrome + '">'
         : '<code style="background-color:' + chrome + '">'
-    return tag + escapeHtmlText(content) + "</code>"
+    return tag + Esc.chipPad() + escapeHtmlText(content) + Esc.chipPad() + "</code>"
 }
 
 function escapeHtmlText(content) {

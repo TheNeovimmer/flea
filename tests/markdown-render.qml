@@ -188,6 +188,8 @@ ShellRoot {
             width: 420
             visible: false
             askArmed: false
+            fencePadX: md.fencePadX
+            fencePadY: md.fencePadY
             source: "first source line\nsecond source line"
         }
 
@@ -322,7 +324,7 @@ ShellRoot {
         shell.check(Checks.tableBaselineError(md.blockItem(tableIndex), md, table.rows.length + 1, table.cols),
             "table header and body baselines")
         shell.check(Checks.remoteLineError(md.blockItem(shell.blockIndex("remote")), md), "remote placeholder centres")
-        shell.check(Checks.fencePadError(Checks.fallbackOf(fallbackProbe), Flea.Theme.spacing.gap, Flea.Theme.spacing.gap),
+        shell.check(Checks.fencePadError(Checks.fallbackOf(fallbackProbe), Board.boardPx(Board.BOARD_FENCE_PAD_X, body), Board.boardPx(Board.BOARD_FENCE_PAD_Y, body)),
             "figure fallback padding")
         var fence = Checks.fenceOf(md.blockItem(shell.blockIndex("fence")))
         shell.check(Checks.surfaceError(fence, String(Flea.Theme.color.surface), String(Flea.Theme.color.background)), "column fence surface")
