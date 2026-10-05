@@ -2,6 +2,7 @@ import QtQuick
 import "." as Flea
 import "js/Markdown.js" as Markdown
 import "js/MarkdownTableFit.js" as Fit
+import "js/Scroll.js" as Scroll
 
 // A table hugs its cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
 Column {
@@ -16,11 +17,26 @@ Column {
     readonly property int bodyPx: root.preview.bodyPx
     // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
     y: root.block.joined === true ? -root.preview.blockGap : 0
-    width: root.tableWidth
+    // A table wider than its block clips to the block and scrolls sideways; the bar's lane is reserved under it, and under no other table.
+    width: root.overflows ? root.availableWidth : root.tableWidth
+    clip: root.overflows
+    bottomPadding: root.overflows ? Theme.spacing.rowPaddingX : 0
     spacing: 0
+
+    // The sideways scroll, built the first time the table overflows: a table that fits owns no object for it, which the block cost gates count.
+    property Item scroller: null
+    function syncScroller() {
+        if (root.scroller === null && root.overflows)
+            root.scroller = Qt.createComponent("MarkdownTableScroll.qml").createObject(root, { table: root })
+    }
+    onOverflowsChanged: root.syncScroller()
+    Component.onCompleted: root.syncScroller()
+    // Every row slides by the scroll position under the clip, so a table that fits sits at zero.
+    readonly property real shift: root.overflows && root.scroller !== null ? -root.scroller.contentX : 0
 
     Row {
         id: headerRow
+        x: root.shift
         spacing: root.cellGap
 
         Repeater {
@@ -40,6 +56,7 @@ Column {
 
     Rectangle {
         visible: root.block.head.length > 0
+        x: root.shift
         width: root.tableWidth
         height: Theme.spacing.hairline
         color: Theme.color.foreground
@@ -50,6 +67,7 @@ Column {
         model: root.block.rows.length
         delegate: Column {
             readonly property int row: index
+            x: root.shift
             width: root.tableWidth
             spacing: 0
 
@@ -170,6 +188,8 @@ Column {
             total += root.widths[c]
         return total
     }
+    // Wider than its block once every column holds its longest word whole; the block's width then bounds the table.
+    readonly property bool overflows: root.availableWidth > 0 && root.tableWidth - root.availableWidth > Scroll.OVERFLOW_PX
 
     // Helpers over the block, so delegates read cells and alignment by place.
     readonly property int columns: Math.max(1, root.block.cols)

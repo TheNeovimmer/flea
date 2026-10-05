@@ -32,6 +32,11 @@ capmarkdown_pointer() {
     if [[ "$where" == close ]]; then
         read -r px py <<< "$(ipc previewCloseState | jq -r '.centre // empty' 2>/dev/null)"
         [[ -n "${py:-}" ]] || fail "capmarkdown: the close button never reported its centre"
+    elif [[ "$where" == table ]]; then
+        # The first table sits under the heading near the top of the document, so its header row is this far down the surface.
+        read -r sx sy sw sh <<< "$(ipc previewSurfaceRect)"
+        [[ -n "${sh:-}" ]] || fail "capmarkdown: the Quick Look surface never reported its rect"
+        px=$((sx + sw / 2)); py=$((sy + capmarkdown_table_row_px))
     else
         read -r sx sy sw sh <<< "$(ipc previewSurfaceRect)"
         [[ -n "${sh:-}" ]] || fail "capmarkdown: the Quick Look surface never reported its rect"
@@ -86,6 +91,9 @@ capmarkdown_close_wait_s=5
 capmarkdown_close_poll_s=0.05
 # A notch is 288 px: three reach the figures region below the quote and tables, twelve more clamp at the tail with the picture and the placeholder.
 capmarkdown_notches_mid=3
+# Where the first table's header row sits below the top of Quick Look's surface, and the wheel notches that scroll a table sideways to its far columns.
+capmarkdown_table_row_px=110
+capmarkdown_notches_side=6
 capmarkdown_notches_end=12
 # Paragraphs of about 40 px rendered and two source lines each, so both views overflow a 2560 x 1440 card by more than the mid notches.
 capmarkdown_notes=60
@@ -377,10 +385,21 @@ capmarkdownkinds_reach_end() {
 }
 # Shoots the open document, then its tail when it is taller than the card, then closes Quick Look.
 # Sample input: previewEndGap answers 0 when the last block and its inset are whole at the top, so nothing scrolls; any other number, -1 included, means the document runs past the card.
+# Sample input: extreme.md, whose 12 columns each hold their longest word and so run past Quick Look's card: a wheel to the right over the table moves it, so the shots differ.
+capmarkdown_table_sideways() {
+    local name="$1" rest="$evidence_dir/cap-markdown-kind-${1%.md}.png" moved="$evidence_dir/cap-markdown-kind-${1%.md}-sideways.png"
+    capmarkdown_pointer table
+    omarchy-drive scroll right "$capmarkdown_notches_side" >/dev/null || fail "capmarkdown: scroll right $capmarkdown_notches_side failed on $name"
+    settle
+    shot "cap-markdown-kind-${name%.md}-sideways"
+    [[ -s "$moved" ]] || fail "capmarkdown: the sideways shot for $name is missing"
+    ! cmp -s "$rest" "$moved" || fail "capmarkdown: the sideways wheel left $name's table where it was, the two shots are identical"
+}
 capmarkdownkinds_shoot() {
     local name="$1" gap
     settle
     shot "cap-markdown-kind-${name%.md}"
+    [[ "$name" != extreme.md ]] || capmarkdown_table_sideways "$name"
     gap="$(ipc previewEndGap)"
     [[ "$gap" =~ ^-?[0-9]+$ ]] || fail "capmarkdownkinds: previewEndGap answered [$gap] for $name"
     if (( gap != 0 )); then
@@ -417,6 +436,7 @@ capmarkdown_fixture_set() {
         # A case counts as ok only with its shot on disk; the shot helper already fails an empty capture.
         [[ -s "$evidence_dir/cap-markdown-kind-${name%.md}.png" ]] || fail "capmarkdown $set: shot for $name is missing, not recording ok"
         results+="${name%.md}=ok "
+        [[ "$name" != extreme.md ]] || results+="extreme-sideways=ok "
     done
     switch_view columns
     for doc in "$repo"/tests/fixtures/"$set"/*.md "$@"; do

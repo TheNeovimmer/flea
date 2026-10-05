@@ -31,6 +31,8 @@ MarkdownList 1.0 MarkdownList.qml
 MarkdownBlocks 1.0 MarkdownBlocks.qml
 MarkdownBlockView 1.0 MarkdownBlockView.qml
 MarkdownTable 1.0 MarkdownTable.qml
+MarkdownTableScroll 1.0 MarkdownTableScroll.qml
+MarkdownTableWheel 1.0 MarkdownTableWheel.qml
 MarkdownFigure 1.0 MarkdownFigure.qml
 singleton FigureService 1.0 FigureService.qml
 FigureStore 1.0 FigureStore.qml

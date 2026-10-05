@@ -21,6 +21,8 @@ ShellRoot {
     readonly property int cardWidth: 840
     readonly property int columnWidth: 250
     readonly property int paneHeight: 900
+    // The panes shrink to this for the wheel checks, so a document of one table is taller than the view and a vertical wheel has room to move it.
+    readonly property int wheelPaneHeight: 160
     // A case is quiet once both panes' content height held still this many frames.
     readonly property int quietFrames: 8
     // Frames a path change may take to drop the old document before the new one is awaited anyway.
@@ -109,6 +111,17 @@ ShellRoot {
         }
     }
 
+    // One word's laid-out width in a cell's own font, so a cell narrower than a word of it is a word Qt had to break.
+    TextMetrics {
+        id: wordProbe
+    }
+
+    function wordPx(cell, word) {
+        wordProbe.font = cell.font
+        wordProbe.text = word
+        return wordProbe.advanceWidth
+    }
+
     function ready(pane) { return pane.contentReady && pane.blockList.length > 0 }
 
     // The drop never falls through to load: past the frame limit the run fails naming the case it never left.
@@ -121,7 +134,7 @@ ShellRoot {
     // The tables a pane built, in tree order, measured against the pane's block column at their body offset.
     function measure(pane) {
         var body = pane.bodyItem
-        return Tables.all(body.contentItem, "tableGrid").map(function (table) { return Tables.geometry(table, body.width, Math.round(table.mapToItem(body.contentItem, 0, 0).x)) })
+        return Tables.all(body.contentItem, "tableGrid").map(function (table) { return Tables.geometry(table, body.width, Math.round(table.mapToItem(body.contentItem, 0, 0).x), shell.wordPx) })
     }
 
     // Where every text and rule of a case's pane sits in its grabbed frame, for the picture-line judge that reads the pixels.
@@ -138,10 +151,9 @@ ShellRoot {
         shell.geos[name + "-" + label] = geos
         shell.log("GEO " + name + " " + label + " " + JSON.stringify(geos))
         for (var i = 0; i < geos.length; i++) {
-            // The narrow column cannot hold every column of the widest cases whatever the wrap; that is named, not checked.
-            var skip = label === "column" && Tables.NARROW_OVERFLOW.indexOf(name) >= 0
-            shell.check(skip ? "" : Tables.fitError(geos[i]), name + " " + label + " table " + i + " fits its column")
+            shell.check(Tables.fitError(geos[i]), name + " " + label + " table " + i + " fits its column")
             shell.check(Tables.gapError(geos[i]), name + " " + label + " table " + i + " keeps its column gap")
+            shell.check(Tables.wordError(geos[i]), name + " " + label + " table " + i + " keeps every word whole")
         }
         if (name === "picturewide" && geos.length > 0) {
             var ref = shell.geos["mid-" + label]
@@ -151,7 +163,26 @@ ShellRoot {
         }
         if (!Tables.tableless(name))
             shell.check(Tables.lineError(name, label, geos), name + " " + label + " draws its lines")
+        var body = pane.bodyItem
+        var tables = Tables.all(body.contentItem, "tableGrid")
+        shell.check(Tables.scrollError(tables, Tables.all(body.contentItem, "tableScroll"), Tables.barsIn(body.contentItem), body.width), name + " " + label + " builds a sideways scroll only for a table that overflows")
         shell.check(Markers.markerBaselineError(pane.bodyItem.contentItem, frame, name), name + " " + label + " marker is placed on its item text's drawnBaseline")
+    }
+
+    // The wheel checks of a pane's first overflowing table; the pane is short, so the document has room to move under a vertical wheel.
+    function judgeWheel(name, pane, label) {
+        var body = pane.bodyItem
+        var scrollers = Tables.all(body.contentItem, "tableScroll")
+        if (scrollers.length === 0)
+            return
+        // The document's own handler sits on the pane; the scroll bar's handlers sit on the bars.
+        var handlers = Tables.all(pane, "fleaScroll").filter(function (h) { return h.flickable === body && h.parent.knobItem === undefined })
+        var tops = body.contentY
+        var error = handlers.length === 1 ? Tables.wheelError(pane.tableWheel, scrollers[0], body, handlers[0]) : "the document has " + handlers.length + " wheel handlers"
+        shell.check(error, name + " " + label + " scrolls sideways under a wheel and leaves a vertical one to the document")
+        for (var i = 0; i < scrollers.length; i++)
+            scrollers[i].contentX = 0
+        body.contentY = tops
     }
 
     function shotHeight(pane, bar) {
@@ -214,8 +245,20 @@ ShellRoot {
                 if (shell.pending.length === 0) {
                     shell.cardShot = shell.paneHeight
                     shell.columnShot = shell.paneHeight
-                    shell.stage = "next"
+                    // A case with a table that scrolls shrinks its panes only after its rest shots are saved, so the wheel never shows in a grab.
+                    var scrolls = Tables.all(card.bodyItem.contentItem, "tableScroll").length + Tables.all(column.bodyItem.contentItem, "tableScroll").length
+                    card.height = scrolls > 0 ? shell.wheelPaneHeight : shell.paneHeight
+                    column.height = scrolls > 0 ? shell.wheelPaneHeight : shell.paneHeight
+                    shell.stage = scrolls > 0 ? "wheel" : "next"
                 }
+            } else if (shell.stage === "wheel") {
+                // A frame after the shrink, so the lists have laid out their short views.
+                var shortName = shell.cases[shell.at]
+                shell.judgeWheel(shortName, card, "card")
+                shell.judgeWheel(shortName, column, "column")
+                card.height = shell.paneHeight
+                column.height = shell.paneHeight
+                shell.stage = "next"
             } else if (shell.stage === "end") {
                 shell.finish()
             }

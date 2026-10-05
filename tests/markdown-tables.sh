@@ -55,4 +55,4 @@ if ! printf '%s\n' "$output" | grep -aq 'MARKDOWN_TABLES [0-9]* checks, 0 failed
     printf 'FAIL markdown-tables: a table case failed or the run did not finish\n'
     exit 1
 fi
-printf 'markdown-tables: every case fits Quick Look; every case except wide and extreme fits the column\n'
+printf 'markdown-tables: every table fits its pane or scrolls sideways with every word whole, in Quick Look and the column\n'

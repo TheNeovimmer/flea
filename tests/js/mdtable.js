@@ -27,23 +27,26 @@ function run(assert) {
     check("a table that fits keeps its natural widths", Fit.fit([50, 60], [20, 30], 200, 10), [50, 60])
     var shared = Fit.fit([100, 400], [50, 100], 300, 10)
     check("a too wide table gives each column its longest word and shares the rest by want", [sum(shared) <= 300, shared[0] >= 50, shared[1] >= 100, shared[1] > shared[0]], [true, true, true, true])
-    check("a column that cannot wrap keeps its width beside a long one", Fit.fit([60, 1000], [60, 1000], 300, 10), [60, 240])
-    check("equal long columns split the room equally", Fit.fit([900, 900, 900], [500, 500, 500], 300, 10), [100, 100, 100])
-    check("a short column keeps its word while the long ones shrink", Fit.fit([40, 900, 900], [40, 500, 500], 300, 10), [40, 130, 130])
-    check("a column never falls under the least a glyph needs", Fit.fit([900, 900, 900], [500, 500, 500], 20, 10), [10, 10, 10])
+    check("a column that cannot wrap keeps its width beside a long one, and the table is wider than avail", Fit.fit([60, 1000], [60, 1000], 300, 10), [60, 1000])
+    check("equal long columns share the room equally when their words fit", Fit.fit([900, 900, 900], [100, 100, 100], 300, 10), [100, 100, 100])
+    check("equal long columns whose words do not fit hold their words whole", Fit.fit([900, 900, 900], [500, 500, 500], 300, 10), [500, 500, 500])
+    check("a short column keeps its word while the long ones shrink to theirs", Fit.fit([40, 900, 900], [40, 100, 100], 300, 10), [40, 130, 130])
+    check("a short column keeps its word beside long columns whose words do not fit", Fit.fit([40, 900, 900], [40, 500, 500], 300, 10), [40, 500, 500])
+    check("a column never falls under the least a glyph needs", Fit.fit([900, 900, 900], [5, 5, 5], 20, 10), [10, 10, 10])
     check("no columns share nothing", Fit.fit([], [], 300, 10), [])
     var leastHeld = Fit.fit([30, 500], [5, 200], 300, 20)
     check("least joins each column floor, so the split shares 300 with none under 20", [sum(leastHeld) <= 300, leastHeld[0] >= 20, leastHeld[1] >= 20], [true, true, true])
-    check("a hopeless table keeps a column narrower than least at its natural width", Fit.fit([15, 15, 15, 15, 500], [15, 15, 15, 15, 400], 40, 20), [15, 15, 15, 15, 20])
+    check("a hopeless table keeps a column narrower than least at its natural width and the rest at their words", Fit.fit([15, 15, 15, 15, 500], [15, 15, 15, 15, 400], 40, 20), [15, 15, 15, 15, 400])
     // A fixed seed keeps the sweep deterministic; the Park-Miller step stays under 2^53, so doubles hold it exactly.
     var sweepSeed = 1917
     var sweepTrials = 5000
     var parkMillerMultiplier = 48271
     var parkMillerModulus = 2147483647
     function sweepNext(bound) { sweepSeed = sweepSeed * parkMillerMultiplier % parkMillerModulus; return sweepSeed % bound }
-    // Every swept split whose floors with least fit avail sums inside it (a hopeless one may overflow); word runs draw from a tighter range.
+    // Every swept split whose floors with least fit avail sums inside it (a hopeless one is wider); word runs draw from a tighter range.
     var sweepOver = 0
     var sweepUnder = 0
+    var sweepBroken = 0
     for (var trial = 0; trial < sweepTrials; trial++) {
         var count = 1 + sweepNext(4)
         var wild = []
@@ -61,7 +64,10 @@ function run(assert) {
             sweepOver++
         // Hopeless or not, no column lands under least or its own natural width, whichever is smaller.
         for (var u = 0; u < count; u++) { if (split[u] < Math.min(need, wild[u])) sweepUnder++ }
+        // Fitting or not, no column lands under its held width: its longest word, least, or its natural width when that is smaller.
+        for (var k = 0; k < count; k++) { if (split[k] < (wild[k] < need ? wild[k] : Math.max(need, Math.min(tiny[k], wild[k])))) sweepBroken++ }
     }
     check("no fitting swept split ever sums past avail", sweepOver, 0)
     check("no swept column ever lands under least or its natural width", sweepUnder, 0)
+    check("no swept column ever lands under its longest word", sweepBroken, 0)
 }
