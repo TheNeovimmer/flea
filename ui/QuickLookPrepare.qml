@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell.Io
 import "js/Markdown.js" as Markdown
+import "js/MarkdownMaths.js" as Maths
 import "js/MarkdownPrepared.js" as Prepared
 
 // A rested cursor on a small local Markdown file prepares Quick Look's entry and holds its small pictures decoded for the first frame.
@@ -24,6 +25,11 @@ Item {
     // The small local pictures the prepared document names, held decoded until the cursor moves, and whether each has finished loading.
     property var pictures: []
     property bool picturesSettled: true
+    // The formulas a rested document draws, typeset ahead so the open takes their drawings from the figure service's memory; empty once the cursor moves.
+    property var formulas: []
+    // A rested inline formula holds one decoded picture, so the process's first picture decode (about 20 ms of plugin set-up) is paid at rest.
+    property bool warmDecoder: false
+    readonly property bool decoderWarm: decoder.status === Image.Ready
     // The one stat child sizing them (null when none), and a suite's counts of those started and alive.
     property var sizer: null
     property int sizersStarted: 0
@@ -49,6 +55,9 @@ Item {
         if (root.pictures.length > 0)
             root.pictures = []
         root.picturesSettled = true
+        root.warmDecoder = false
+        if (root.formulas.length > 0)
+            root.formulas = []
         rest.restart()
     }
 
@@ -111,6 +120,38 @@ Item {
             source: modelData
             onStatusChanged: root.recount()
         }
+    }
+
+    // One unseen figure per formula, built as the document builds its own, so the service holds the drawing under the key the open asks with.
+    Repeater {
+        id: typeset
+        model: root.formulas
+        delegate: MarkdownFigure {
+            required property var modelData
+            visible: false
+            kind: "math"
+            source: modelData.source
+            display: modelData.display
+            inline: true
+            bare: true
+            bgHex: Prepared.hexOf(Theme.color.background)
+            fgHex: Prepared.hexOf(Theme.color.foreground)
+            accentHex: Prepared.hexOf(Theme.color.accent)
+            mutedHex: Prepared.hexOf(Theme.color.muted)
+            surfaceHex: Prepared.hexOf(Theme.color.surface)
+            fontFamily: Theme.font.family
+            bodyPx: Theme.font.body
+            onSvgChanged: root.recount()
+            onErrorChanged: root.recount()
+        }
+    }
+
+    Image {
+        id: decoder
+        visible: false
+        asynchronous: true
+        source: root.warmDecoder ? Maths.CLEAR : ""
+        onStatusChanged: root.recount()
     }
 
     Loader {
@@ -178,9 +219,13 @@ Item {
 
     function startPictures(blocks, dir) {
         root.releaseSizer()
+        root.formulas = Prepared.formulasIn(blocks, Prepared.FORMULA_LIMIT)
+        root.warmDecoder = root.formulas.some(function (one) { return !one.display })
         var urls = Prepared.pictureUrls(blocks, Prepared.PICTURE_LIMIT, dir)
-        if (urls.length === 0)
+        if (urls.length === 0) {
+            root.recount()
             return
+        }
         root.picturesSettled = false
         root.sizersStarted++
         root.sizer = sizerComponent.createObject(root, { seq: root.seq, urls: urls })
@@ -196,8 +241,19 @@ Item {
         root.recount()
     }
 
-    // Settled once no held picture is still loading, a failed one included.
+    // Settled once no held picture is still loading, a failed one included, and the decoder's picture and every typeset formula with them.
     function recount() {
+        for (var f = 0; f < typeset.count; f++) {
+            var figure = typeset.itemAt(f)
+            if (figure !== null && figure.svg === "" && figure.error === "") {
+                root.picturesSettled = false
+                return
+            }
+        }
+        if (decoder.status === Image.Loading) {
+            root.picturesSettled = false
+            return
+        }
         for (var i = 0; i < held.count; i++) {
             var one = held.itemAt(i)
             if (one !== null && one.status === Image.Loading) {

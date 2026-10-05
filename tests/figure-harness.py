@@ -279,6 +279,9 @@ import QtQuick
 QtObject {
     property var requests: []
     property int sequence: 0
+    // The drawings the service already holds, by source; the real singleton answers its cache the same way.
+    property var held: ({"held^1": "<svg/>"})
+    function cached(kind, source, theme, display) { return held[source]; }
     signal done(int ticket, string svg, string error)
     function ask(kind, source, display, theme) {
         requests.push(JSON.parse(JSON.stringify(theme)));
@@ -292,7 +295,7 @@ QtObject {
                                          XDG_CACHE_HOME=str(box / "qml-cache")),
                                 capture_output=True, text=True, timeout=FRAGMENT_BOUND_SECONDS)
         component_output = result.stdout + result.stderr
-        component_ok = result.returncode == 0 and "figure-component: 14 check(s), 0 failed" in component_output
+        component_ok = result.returncode == 0 and "figure-component: 20 check(s), 0 failed" in component_output
         check(component_ok, "mx2a F31/F32 and mx2b F37/F38 one request per creation and per burst, an equal ask dropped, the exact failed-inline fence"
               + ("" if component_ok else ": " + component_output.strip()))
     else:

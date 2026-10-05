@@ -55,6 +55,16 @@ function run(check) {
         { type: "image", url: "file:///d/img/in.png" }, { type: "image", url: "file:///d/%2e%2e/e/b.png" }]
     check("only pictures under the document's folder are named", JSON.stringify(Prepared.pictureUrls(away, 8, "/d")), JSON.stringify(["file:///d/img/in.png"]))
     check("a document at the root names none", JSON.stringify(Prepared.pictureUrls(away, 8, "")), JSON.stringify([]))
+    // The formulas a prepared document draws are named once each, in reading order, so a rested cursor typesets them before the open.
+    var inline = { type: "run", text: "a <code>x</code>", maths: ["x", "x", "w"] }
+    var shown = { type: "figure", kind: "math", source: "y" }
+    check("a document with no formula names none", JSON.stringify(Prepared.formulasIn([{ type: "run", text: "x" }, { type: "figure", kind: "mermaid", source: "A-->B" }], 8)), JSON.stringify([]))
+    check("an empty maths list names none", JSON.stringify(Prepared.formulasIn([{ type: "run", text: "x", maths: [] }], 8)), JSON.stringify([]))
+    check("inline and display formulas are named once each, in reading order", JSON.stringify(Prepared.formulasIn([inline, shown, shown], 8)), JSON.stringify([{ source: "x", display: false }, { source: "w", display: false }, { source: "y", display: true }]))
+    check("the same text inline and shown is two requests", JSON.stringify(Prepared.formulasIn([{ type: "run", maths: ["y"] }, shown], 8)), JSON.stringify([{ source: "y", display: false }, { source: "y", display: true }]))
+    check("a quote's part names its formula", JSON.stringify(Prepared.formulasIn([{ type: "quote", text: "", parts: [inline] }], 8)), JSON.stringify([{ source: "x", display: false }, { source: "w", display: false }]))
+    check("a list item's part names its formula, an empty item none", JSON.stringify(Prepared.formulasIn([{ type: "list", items: ["", ""], parts: [null, [shown]] }], 8)), JSON.stringify([{ source: "y", display: true }]))
+    check("a document past the limit names only the first formulas", JSON.stringify(Prepared.formulasIn([inline, shown], 2)), JSON.stringify([{ source: "x", display: false }, { source: "w", display: false }]))
     var urls = ["file:///d/a.png", "file:///d/big.png", "file:///d/gone.png", "file:///d/b%20c.png", "file:///d/empty.png"]
     var statText = "2048\t/d/a.png\n" + (Prepared.PICTURE_MAX_BYTES + 1) + "\t/d/big.png\n" + Prepared.PICTURE_MAX_BYTES + "\t/d/b c.png\n0\t/d/empty.png\n"
     check("only a sized, non-empty picture within the cap is held", JSON.stringify(Prepared.smallPictures(urls, statText)), JSON.stringify(["file:///d/a.png", "file:///d/b%20c.png"]))
