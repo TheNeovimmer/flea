@@ -119,14 +119,15 @@ Item {
     // The 0.3.6 swap additions, null until the first open builds them below; every reader guards it.
     readonly property var swap: swapLoader.item
     readonly property bool swapBuilt: swapLoader.active
-    // The compiled Markdown pane, held from the first idle after the window settles and never instantiated, so the first Space loads no unit.
+    // The compiled Markdown pane and Quick Look's swap wrapper, held from the first idle after the window settles and never instantiated, so the first Space compiles and loads no unit.
     property var markdownUnit: null
+    property var swapUnit: null
     readonly property int unitWarmMs: 1000
     readonly property bool windowSettled: root.pane !== null && root.pane.listingState === "ready" && !root.pane.listInFlight
     Timer {
         running: root.windowSettled && root.markdownUnit === null
         interval: root.unitWarmMs
-        onTriggered: root.markdownUnit = Qt.createComponent("MarkdownPane.qml", Component.Asynchronous)
+        onTriggered: { root.markdownUnit = Qt.createComponent("MarkdownPane.qml", Component.Asynchronous); root.swapUnit = Qt.createComponent("QuickLookSwap.qml", Component.Asynchronous) }
     }
     Flea.QuickLookPrepare { pane: root.pane; resting: !root.active; restMs: root.followSettleMs }
     // The memory suite asserts both Markdown loader items are null without a Markdown file.

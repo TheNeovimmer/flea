@@ -21,6 +21,12 @@ printf 'Before disk edit.\n' > "$test_root/fixture/disk.md"
 printf 'Before disk edit.\n' > "$test_root/fixture/disk-rename.md"
 printf 'Before disk edit.\n' > "$test_root/fixture/disk-stale.md"
 printf 'Other file.\n' > "$test_root/fixture/disk-stale-b.md"
+# The picture-prefetch fixture: one document and the picture beside it (the parser keeps a document's pictures in its folder).
+mkdir -p "$test_root/pics/docs/img"
+base64 -d > "$test_root/pics/docs/img/pixel.png" <<'PNG'
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==
+PNG
+printf '![a](img/pixel.png)\n' > "$test_root/pics/docs/in.md"
 # The parse-count fixtures: two files of different text, one of the second's text, and two past the worker threshold.
 printf 'Alpha text.\n' > "$test_root/fixture/pc-a.md"
 printf 'Beta text.\n' > "$test_root/fixture/pc-b.md"
@@ -72,7 +78,7 @@ printf '%s\n' 'WorkerScript.onMessage = function (msg) {};' > "$fallback_ui/Mark
 sed -i 's/^function blocks(source, dir, chrome, ink) {$/&\n    if (String(source).indexOf("FLEA-SCRATCH-THROW") >= 0) throw new Error("scratch parse failure")/' "$fallback_ui/js/Markdown.js"
 grep -q 'FLEA-SCRATCH-THROW' "$fallback_ui/js/Markdown.js" || { echo 'FAIL scratch ui: parser not patched'; exit 1; }
 failures=0
-scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker disk-stream disk-regrow disk-uneven local-image-narrow column-scale parse-quick parse-column parse-worker parse-fallback)
+scenarios=(control tasks reference table scroll source-key size-key theme links disk disk-rename disk-scroll disk-stale local-image long-list long-table disk-fail disk-partial disk-shrink disk-switch disk-worker disk-stream disk-regrow disk-uneven local-image-narrow column-scale parse-quick parse-column parse-worker parse-fallback parse-clear pictures)
 for scenario in "${scenarios[@]}"; do
     link_preload=""
     case "$scenario" in
@@ -80,10 +86,12 @@ for scenario in "${scenarios[@]}"; do
         local-image-narrow|column-scale) cp tests/markdown-fit.qml "$test_root/config/shell.qml" ;;
         disk-fail|disk-partial|disk-shrink|disk-switch|disk-worker) cp tests/markdown-disk.qml "$test_root/config/shell.qml" ;;
         disk-stream|disk-regrow|disk-uneven) cp tests/markdown-disk-reader.qml "$test_root/config/shell.qml" ;;
+        pictures) cp tests/quicklook-pictures.qml "$test_root/config/shell.qml" ;;
         parse-*) cp tests/markdown-parse-count.qml "$test_root/config/shell.qml" ;;
         *) cp tests/preview-hunt.qml "$test_root/config/shell.qml" ;;
     esac
-    [ "$scenario" != parse-fallback ] || ln -sfn "$fallback_ui" "$test_root/config/flea"
+    # Only parse-fallback runs on the scratch ui; every other phase is back on the real one, whatever order they run in.
+    if [ "$scenario" = parse-fallback ]; then ln -sfn "$fallback_ui" "$test_root/config/flea"; else ln -sfn "$PWD/ui" "$test_root/config/flea"; fi
     [ "$scenario" != links ] || link_preload="$test_root/link-spy.so"
     phase="$test_root/$scenario"
     mkdir -p "$phase"/{home,state,cache,data,runtime,tmp}
@@ -91,7 +99,7 @@ for scenario in "${scenarios[@]}"; do
     output=$(env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
         HOME="$phase/home" XDG_STATE_HOME="$phase/state" XDG_CONFIG_HOME="$phase/home/.config" \
         XDG_CACHE_HOME="$phase/cache" XDG_DATA_HOME="$phase/data" XDG_RUNTIME_DIR="$phase/runtime" TMPDIR="$phase/tmp" \
-        FLEA_BIN="$PWD/target/debug/flea" FLEA_PREVIEW_HUNT_CASE="$scenario" FLEA_PREVIEW_HUNT_DIR="$test_root/fixture" \
+        FLEA_BIN="$PWD/target/debug/flea" FLEA_PREVIEW_HUNT_CASE="$scenario" FLEA_PREVIEW_HUNT_DIR="$test_root/fixture" FLEA_PREVIEW_HUNT_PICS="$test_root/pics" \
         LD_PRELOAD="$link_preload" FLEA_MARKDOWN_OPEN_LOG="$phase/open.log" \
         QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
         timeout 15 qs -p "$test_root/config" 2>&1)
@@ -105,7 +113,7 @@ for scenario in "${scenarios[@]}"; do
             printf '%s\n' "$output" | tail -8
         fi
     fi
-    warnings=$(printf '%s\n' "$output" | grep -E 'TypeError|ReferenceError|Unable to assign' || true)
+    warnings=$(printf '%s\n' "$output" | grep -E 'TypeError|ReferenceError|Unable to assign|Binding loop detected' || true)
     if [ -n "$warnings" ]; then printf 'FAIL preview binding warning: %s\n' "$warnings"; failures=$((failures+1)); fi
     if [ "$scenario" = source-key ]; then
         # A state file the flip never wrote is fine; one that exists must not hold the retired leaf.

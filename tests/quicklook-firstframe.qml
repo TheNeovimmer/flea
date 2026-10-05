@@ -18,6 +18,8 @@ ShellRoot {
     // A storage class the leg forces, or "unknown" to hold the pane before its class reply (storageKnown false, class "").
     readonly property string forcedClass: Quickshell.env("QLFF_CLASS")
     readonly property bool realKey: Quickshell.env("QLFF_MODE") === "key"
+    // The fixture documents that link a local picture, which a step on them must find drawn.
+    readonly property var pictureDocs: ["a-notes.md", "h-html.md"]
     // Polls of a quiet window before a step starts, so the previous close and the listing are done.
     readonly property int quietPolls: 8
     // A step that never reaches content is a harness fault, not a duration the product is held to; a 1 MiB parse is the slowest.
@@ -36,6 +38,8 @@ ShellRoot {
     property int frames: 0
     property int emptyFrames: 0
     property int contentFrame: 0
+    // The card's pictures and how many are ready, counted as the key returns before any event has run, so a decode finishing meanwhile never passes for a held one.
+    property var syncPictures: ({ total: 0, ready: 0 })
     property int failures: 0
     property int sweepLeft: 0
     property int restedMs: 0
@@ -89,6 +93,25 @@ ShellRoot {
         return null
     }
     function doc() { return root.pv() ? root.find(root.pv(), "PreviewMarkdown") : null }
+    function collect(item, type, out) {
+        if (!item) return
+        if (String(item).indexOf(type) === 0) out.push(item)
+        var kids = item.children || []
+        for (var i = 0; i < kids.length; i++) root.collect(kids[i], type, out)
+    }
+    // Every picture the open document draws and how many have their pixels: one still loading in the first frame lands a frame later.
+    function pictureState() {
+        var found = []
+        root.collect(root.doc(), "QQuickImage", found)
+        return { total: found.length, ready: found.filter(function (one) { return one.status === Image.Ready }).length }
+    }
+    // The compiled units the idle warm holds: an open before them would compile inside the key, which a user's first Space never does.
+    function unitsReady() {
+        var p = root.pv()
+        // A preview with no swap unit is waited for on the Markdown one alone, so the compile gate in the script is what fails it.
+        var units = p ? (p.swapUnit === undefined ? [p.markdownUnit] : [p.markdownUnit, p.swapUnit]) : []
+        return units.length > 0 && units.every(function (u) { return u !== null && u !== undefined && u.status === Component.Ready })
+    }
     // The first block of the document named by the step: a block left over from the previous file never counts.
     function firstBlock() {
         var p = root.pv()
@@ -183,6 +206,7 @@ ShellRoot {
         root.frames = 0
         root.emptyFrames = 0
         root.contentFrame = 0
+        root.syncPictures = { total: 0, ready: 0 }
         var before = root.doc()
         root.blockedBefore = before ? Number(before.blockedReads) : 0
         root.stage = 2
@@ -198,7 +222,9 @@ ShellRoot {
             var d = root.doc()
             var blocks = d ? d.blockList.length : 0
             var loads = d ? d.loadRuns : -1
-            root.log("SYNC " + (root.step + 1) + " card=" + root.pv().active + " blocks=" + blocks + " loads=" + loads)
+            root.syncPictures = root.pictureState()
+            root.log("SYNC " + (root.step + 1) + " card=" + root.pv().active + " blocks=" + blocks + " loads=" + loads
+                + " pictures=" + root.syncPictures.ready + "/" + root.syncPictures.total + " held=" + (root.prepare.pictures ? root.prepare.pictures.length : -1))
             if (!root.pv().active) root.fail("step " + (root.step + 1) + " returned from the key without the card")
             if (step.expect === "inline" && blocks === 0)
                 root.fail("step " + (root.step + 1) + " returned from the key with 0 blocks")
@@ -242,14 +268,19 @@ ShellRoot {
         var n = root.step + 1
         var d = root.doc()
         var blocked = d ? d.blockedReads - root.blockedBefore : -1
-        root.log("STEP " + n + " " + step.name + " " + step.expect + " frames=" + root.contentFrame + " empty=" + root.emptyFrames + " blocked=" + blocked)
+        root.log("STEP " + n + " " + step.name + " " + step.expect + " frames=" + root.contentFrame + " empty=" + root.emptyFrames + " blocked=" + blocked
+            + " pictures=" + root.syncPictures.ready + "/" + root.syncPictures.total)
         if (!d || d.sourceChars !== 0) root.fail("step " + n + " laid out " + (d ? d.sourceChars : -1) + " characters of Source text while Rendered shows")
         if (step.expect === "inline") {
             if (root.emptyFrames !== 0) root.fail("step " + n + " drew the card " + root.emptyFrames + " time(s) without its first block")
             if (root.contentFrame !== 1) root.fail("step " + n + " reached content in frame " + root.contentFrame + ", want 1")
             if (blocked !== 1) root.fail("step " + n + " blocked " + blocked + " time(s) for a small local file, want 1")
             if (step.via === "space" && (!d || d.reusedParses !== 1)) root.fail("step " + n + " parsed again instead of taking the prepared entry")
-            if (step.via === "space" && d && d.reusedParses === 1 && !root.compared) {
+            // A small local picture is held decoded while the cursor rests, so the card builds it ready inside the key and draws it in its first frame.
+            if (step.via === "space" && root.syncPictures.total === 0 && root.pictureDocs.indexOf(step.name) >= 0) root.fail("step " + n + " built no picture to check")
+            if (step.via === "space" && !root.realKey && root.syncPictures.ready !== root.syncPictures.total)
+                root.fail("step " + n + " built " + (root.syncPictures.total - root.syncPictures.ready) + " of " + root.syncPictures.total + " picture(s) still loading when the key returned")
+            if (step.via === "space" && d && d.reusedParses === 1 && !root.compared && step.name === "a-notes.md") {
                 root.compared = true
                 root.sameAsFreshParse(d, n)
             }
@@ -277,6 +308,7 @@ ShellRoot {
             }
             if (root.stage === 0) {
                 if (!pane || pane.listInFlight || pane.listingState !== "ready" || pane.total < 2 || !pane.storageKnown) return
+                if (!root.unitsReady()) return
                 root.keys = Qt.createQmlObject("import QtTest; TestEvent {}", pane.listArea)
                 root.prepare = root.prepare || root.find(root.pv(), "QuickLookPrepare")
                 if (!root.prepare) { root.fail("the preview has no QuickLookPrepare"); root.finish(); return }
@@ -316,7 +348,7 @@ ShellRoot {
                     sweepTimer.start()
                     return
                 }
-                if (step.expect === "inline" && step.via === "space" && root.prepare.preparedPath !== root.target()) return
+                if (step.expect === "inline" && step.via === "space" && (root.prepare.preparedPath !== root.target() || root.prepare.picturesSettled === false)) return
                 if (step.expect === "inline" && step.via === "space" && root.prepare.workerAnswers <= root.answersBefore) {
                     root.fail("step " + (root.step + 1) + " found " + step.name + " prepared without the worker answering")
                     root.finish()

@@ -29,7 +29,9 @@ Item {
     // Parses a request took from the shared entry instead of running, so a suite can tell a reuse from a parse.
     property int reusedParses: 0
 
-    readonly property string rawText: file.text()
+    // Set by each load, never a binding on file.text(): the blocking first read loaded inside such a binding and re-entered it.
+    property string loadedText: ""
+    readonly property string rawText: root.loadedText
     function hexOf(c) {
         return Prepared.hexOf(c)
     }
@@ -178,6 +180,7 @@ Item {
         // The first event opens the window and the rest land inside it: a restart would starve a file written without pause.
         onFileChanged: if (!reloadCoalesce.running) reloadCoalesce.start()
         onLoaded: {
+            root.loadedText = file.text()
             // Only the first read of a path blocks; a reload after a save never does, whatever the file grew to.
             file.blockLoading = false
             root.loadRuns++
@@ -186,6 +189,7 @@ Item {
             root.askParse()
         }
         onLoadFailed: {
+            root.loadedText = ""
             file.blockLoading = false
             root.keepScroll = false
             root.readFailed = true
@@ -199,13 +203,17 @@ Item {
         // A pane built before the path moved sees the last file's path, which an open that named its file must not read first.
         if ((want === file.path) || (want !== "" && root.blockPath !== "" && want !== root.blockPath))
             return
-        file.blockLoading = want !== "" && want === root.blockPath
-        if (file.blockLoading) {
+        var blocking = want !== "" && want === root.blockPath
+        file.blockLoading = blocking
+        if (blocking) {
             root.blockedReads++
             // A view that holds another file takes a new path asynchronously, so the blocking read starts from none.
             file.path = ""
         }
         file.path = want
+        // blockLoading gates only text(), so the blocking first read is taken here, in the first frame, not inside a binding.
+        if (blocking) root.loadedText = file.text()
+        else if (want === "") root.loadedText = ""
     }
     Component.onCompleted: root.pointFile()
     onTooLargeChanged: root.pointFile()
