@@ -53,7 +53,7 @@ QtObject {
     function previewOpen(): bool { return root.look.active }
     // Read the column's mounted Markdown view, empty until its document is ready.
     function columnMarkdownView(): string {
-        var column = root.lookColumnItem
+        var column = root.pane.previewColumnItem
         var markdown = column ? column.markdown : null
         return column && column.visible && markdown && markdown.active && markdown.contentReady ? markdown.view : ""
     }
@@ -83,7 +83,7 @@ QtObject {
     function previewPdfZoom(): string { var p = root.look.pdfItem; return p ? String(p.zoom) : "" }
     function previewPdfFocus(): int { var p = root.look.pdfItem; return p ? p.pdfControlIndex : -1 }
     function pdfState(overlay: bool): string {
-        var p = overlay ? root.look.pdfItem : root.lookColumnItem
+        var p = overlay ? root.look.pdfItem : root.pane.previewColumnItem
         if (!p) return "null"
         return JSON.stringify({ page: overlay ? p.page : p.pdfPage(), pages: overlay ? p.pageCount : p.pdfPages,
             frame: overlay ? "" : root.fleaWindow.rectOf(p.pdfFrameItem),
