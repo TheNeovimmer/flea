@@ -9,7 +9,7 @@ function fit(natural, minimum, avail, least) {
         return natural[c] < least ? natural[c] : Math.max(least, Math.min(minimum[c], natural[c]))
     }
     function capped(w, c) {
-        return natural[c] < least ? Math.floor(w) : Math.max(least, Math.floor(w))
+        return Math.max(Math.min(least, natural[c]), Math.floor(w))
     }
     var total = 0
     var floor = 0

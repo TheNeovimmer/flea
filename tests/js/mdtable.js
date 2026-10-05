@@ -34,6 +34,7 @@ function run(assert) {
     check("no columns share nothing", Fit.fit([], [], 300, 10), [])
     var leastHeld = Fit.fit([30, 500], [5, 200], 300, 20)
     check("least joins each column floor, so the split shares 300 with none under 20", [sum(leastHeld) <= 300, leastHeld[0] >= 20, leastHeld[1] >= 20], [true, true, true])
+    check("a hopeless table keeps a column narrower than least at its natural width", Fit.fit([15, 15, 15, 15, 500], [15, 15, 15, 15, 400], 40, 20), [15, 15, 15, 15, 20])
     // A fixed seed keeps the sweep deterministic; the Park-Miller step stays under 2^53, so doubles hold it exactly.
     var sweepSeed = 1917
     var sweepTrials = 5000
@@ -42,6 +43,7 @@ function run(assert) {
     function sweepNext(bound) { sweepSeed = sweepSeed * parkMillerMultiplier % parkMillerModulus; return sweepSeed % bound }
     // Every swept split whose floors with least fit avail sums inside it (a hopeless one may overflow); word runs draw from a tighter range.
     var sweepOver = 0
+    var sweepUnder = 0
     for (var trial = 0; trial < sweepTrials; trial++) {
         var count = 1 + sweepNext(4)
         var wild = []
@@ -54,8 +56,12 @@ function run(assert) {
         var need = 5 + sweepNext(30)
         var floor = 0
         for (var f = 0; f < count; f++) { floor += wild[f] < need ? wild[f] : Math.max(need, Math.min(tiny[f], wild[f])) }
-        if (floor <= room && sum(Fit.fit(wild, tiny, room, need)) > room)
+        var split = Fit.fit(wild, tiny, room, need)
+        if (floor <= room && sum(split) > room)
             sweepOver++
+        // Hopeless or not, no column lands under least or its own natural width, whichever is smaller.
+        for (var u = 0; u < count; u++) { if (split[u] < Math.min(need, wild[u])) sweepUnder++ }
     }
     check("no fitting swept split ever sums past avail", sweepOver, 0)
+    check("no swept column ever lands under least or its natural width", sweepUnder, 0)
 }
