@@ -20,14 +20,14 @@ function run(check) {
                 sourceLines[c].trim().length <= 140, true)
             if (c > 0 && /^\s*\/\//.test(sourceLines[c - 1]))
                 check("md3u F4 single constraint " + commentFiles[f] + ":" + (c + 1),
-                    /Sample(?: input)?:/.test(sourceLines[c - 1] + sourceLines[c]), true)
+                    /Sample(?: input)?:/.test(sourceLines[c - 1] + sourceLines[c]) && !(c > 1 && /^\s*\/\//.test(sourceLines[c - 2])), true)
         }
     }
     // A shell comment is one line, or one sample-input line beside one constraint line.
     var blockcost = Source.source("tests/markdown-blockcost.sh").split("\n")
     for (var h = 1; h < blockcost.length; h++) {
         if (/^\s*#(?!!)/.test(blockcost[h]) && /^\s*#(?!!)/.test(blockcost[h - 1]))
-            check("md2 T3 blockcost.sh comment " + (h + 1) + " stands alone", /Sample(?: input)?:/.test(blockcost[h - 1] + blockcost[h]), true)
+            check("md2 T3 blockcost.sh comment " + (h + 1) + " stands alone", /Sample(?: input)?:/.test(blockcost[h - 1] + blockcost[h]) && !(h > 1 && /^\s*#(?!!)/.test(blockcost[h - 2])), true)
     }
     var blocksSource = Source.source("ui/js/MdBlocks.js")
     check("md3u F5 figureKind sample", /\/\/ Sample input:[^\n]*mermaid[^\n]*\nfunction figureKind/.test(blocksSource), true)
