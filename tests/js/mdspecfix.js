@@ -186,4 +186,17 @@ function run(check) {
     check("a space reference line with two spaces draws one line break", (spaceBreak[0].text.match(/<br \/>|\\\n|  \n/g) || []).length, 1)
     var spaceLines = blocks("a\n" + spaceRef.repeat(floodLength) + "\nb\n")
     check("a line of a space reference run keeps one paragraph", spaceLines.length + ":" + spaceLines[0].text.search(/\n[ \t]*\n/), "1:-1")
+    // A paragraph continuation line keeps its leading spaces and is not code, so its space line stays whole however long its indent.
+    var longIndent = 10
+    var indentLine = blocks("a\n" + " ".repeat(longIndent) + spaceRef + "\nb\n")
+    check("a long indented line of one space reference keeps one paragraph", indentLine.length + ":" + indentLine[0].text.search(/\n[ \t]*\n/), "1:-1")
+    var indentFlood = blocks("a\n" + (" ".repeat(longIndent) + spaceRef.repeat(floodLength) + "\n").repeat(floodLength) + "b\n")
+    check("long indented lines of a space reference run keep one paragraph", indentFlood.length + ":" + indentFlood[0].text.search(/\n[ \t]*\n/), "1:-1")
+    // A label or an alt text is a fragment that starts mid-line, so its leading and trailing space references stay as one space.
+    check("a space reference opens a link label", blocks("a[" + spaceRef + "b](u)\n")[0].text.indexOf("> b<") >= 0, true)
+    check("a space reference closes a link label", blocks("[x" + spaceRef + "](u)\n")[0].text.indexOf(">x <") >= 0, true)
+    check("a space reference opens an image alt text", blocks("![" + spaceRef + "b](u)\n")[0].alt, " b")
+    check("a space reference closes an image alt text", blocks("![x" + spaceRef + "](u)\n")[0].alt, "x ")
+    // An angle destination holds no unescaped "<", so the inline form is plain text like a definition's.
+    check("an inline angle destination with a less-than is text", blocks("[a](<b<1>)\n")[0].text.indexOf("<a href"), -1)
 }

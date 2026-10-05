@@ -59,7 +59,7 @@ function readInlineTarget(text, i) {
     if (text.charAt(j) === "<") {
         j++
         var start = j
-        j = angleClose(text, j, cap)
+        j = angleClose(text, j, cap, true)
         if (j < 0)
             return null
         url = text.slice(start, j)

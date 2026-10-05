@@ -14,9 +14,9 @@ function writer(state, dir, chrome, ink) {
     var run = []
     var tokens = []
     var cited = []
-    function inlineOf(text, citations, literalPlain, bareText) {
+    function inlineOf(text, citations, literalPlain, bareText, fragment) {
         return Run.parseInline(text, dir, state.defs, state.numbers, chrome, ink, tokens,
-            citations === false ? undefined : cited, literalPlain, bareText)
+            citations === false ? undefined : cited, literalPlain, bareText, fragment)
     }
     // Prose outside every container: a ">" in it, even after a formula's figure, is text and never a quote mark.
     function pushText(text) {
@@ -53,7 +53,7 @@ function writer(state, dir, chrome, ink) {
                 && (i + 1 === run.length || run[i + 1].trim().length === 0)
             var image = solo ? Leaf.standaloneImage(run[i], dir, state.defs) : null
             if (image !== null) {
-                image.alt = Res.plainText(inlineOf(image.alt, false))
+                image.alt = Res.plainText(inlineOf(image.alt, false, false, false, true))
                 pushRun(plain)
                 plain = []
                 out.push(image)

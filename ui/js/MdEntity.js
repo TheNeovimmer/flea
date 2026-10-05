@@ -45,24 +45,37 @@ function referenceAt(text, i) {
 
 // Sample input: "", " " or "  " is a piece with nothing drawn on its line.
 var BLANK_PIECE = /^ *$/
-// Pieces of output looked back over, so a flood of blanks stays linear.
-var BLANK_WINDOW = 8
 var WHITESPACE_REFERENCE = /[\t\n\r\f]/g
+var HARD_BREAK_PIECE = "<br />"
 // What a line holding only space references keeps, so Qt reads text and the paragraph stays whole.
 var WHOLE_LINE_REFERENCE = "&#32;"
 
-// Sample input: out ["a", "\n", " "] is blank after its last newline; ["a ", "b"] is not; longer than the window answers false, a long leading run is code already.
-function blankLineTail(out) {
-    var floor = Math.max(0, out.length - BLANK_WINDOW)
-    for (var k = out.length - 1; k >= floor; k--) {
-        var cut = out[k].lastIndexOf("\n")
-        var tail = cut < 0 ? out[k] : out[k].slice(cut + 1)
-        if (!BLANK_PIECE.test(tail))
-            return false
-        if (cut >= 0)
-            return true
-    }
-    return floor === 0
+// Sample input: after "a" and "\n" a line is blank, after " " it stays blank, after "b" or a token (a number) it is not; "<br />" ends a line.
+function blankAfter(blank, piece) {
+    if (typeof piece !== "string")
+        return false
+    var cut = piece.lastIndexOf("\n")
+    if (cut >= 0)
+        return BLANK_PIECE.test(piece.slice(cut + 1))
+    return piece === HARD_BREAK_PIECE || (blank && BLANK_PIECE.test(piece))
+}
+
+// Sample input: lineBlank(lineState(true), ["a", "\n", " "]) answers true; ["a", " "] on a fresh state answers false; lineState(false), a fragment, starts not blank.
+// The state folds each piece once, so it stays linear; lineRestart sets it afresh after a label's pieces were replaced by one.
+function lineState(startsBlank) {
+    return { scanned: 0, blank: startsBlank }
+}
+
+function lineBlank(state, out) {
+    state.scanned = Math.min(state.scanned, out.length)
+    for (; state.scanned < out.length; state.scanned++)
+        state.blank = blankAfter(state.blank, out[state.scanned])
+    return state.blank
+}
+
+function lineRestart(state, out, piece) {
+    state.blank = blankAfter(false, piece)
+    state.scanned = out.length
 }
 
 // Sample input: a tab or a newline (the decoded text of "&#9;" and "&#10;") is drawn as one space, any other text is unchanged.
@@ -70,10 +83,9 @@ function drawnText(text) {
     return text.replace(WHITESPACE_REFERENCE, " ")
 }
 
-// Sample input: "x  &#32;\ny" at 3 answers { text: "", end: 8, trim: 2 } (line end, two raw spaces go); "x&#32;  \ny" at 1 answers { text: "", end: 6, trim: 0 }; "a\n&#32;\nb" at 2 answers { text: "&#32;", end: 7, trim: 0 }; "x&#32;&#32;y" at 1 answers { text: " ", end: 11, trim: 0 }; "&copy;" answers null.
-// A run of space references with the literal spaces inside and after it is one unit: dropped at a line end (the literal spaces after it stay to decide a hard break) and at a line start, else one raw space.
-// A run that is the whole line stays as one reference, so Qt sees a non-blank line (a blank one splits the paragraph) and draws nothing.
-function spaceRunAt(text, i, out) {
+// Sample input: "x  &#32;\ny" at 3 answers { text: "", end: 8, trim: 2 }; "x&#32;  \ny" at 1 answers { text: "", end: 6, trim: 0 }; "a\n&#32;\nb" at 2 with blank true answers { text: "&#32;", end: 7, trim: 0 }; "&copy;" answers null.
+// A run of space references with the literal spaces inside and after it is one unit: dropped at a line end (the literal spaces after it stay to decide a hard break) and at a line start, else one raw space; a whole-line run stays one reference so Qt sees a non-blank line.
+function spaceRunAt(text, i, out, blank, endsLine) {
     var end = i
     var lastReference = i
     var hit = referenceAt(text, end)
@@ -86,11 +98,11 @@ function spaceRunAt(text, i, out) {
     }
     if (lastReference === i)
         return null
-    if (end >= text.length || text.charAt(end) === "\n") {
+    if ((end >= text.length && endsLine) || text.charAt(end) === "\n") {
         var trim = 0
         while (trim < out.length && out[out.length - 1 - trim] === " ")
             trim++
-        return { text: blankLineTail(out) ? WHOLE_LINE_REFERENCE : "", end: lastReference, trim: trim }
+        return { text: blank ? WHOLE_LINE_REFERENCE : "", end: lastReference, trim: trim }
     }
-    return { text: blankLineTail(out) ? "" : " ", end: end, trim: 0 }
+    return { text: blank ? "" : " ", end: end, trim: 0 }
 }

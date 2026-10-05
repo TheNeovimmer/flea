@@ -15,8 +15,8 @@ var hasOwn = Object.prototype.hasOwnProperty
 // The work gate replaces this no-op to count each frame visited.
 var countFrameStep = function () {}
 
-// The driver: held spans first, then one forward scan; bareText says no container holds the text (its ">" is never a quote mark).
-function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, literalPlain, bareText) {
+// The driver: held spans first, then one forward scan; bareText says no container holds the text (its ">" is never a quote mark); fragment says the text starts and ends mid-line (an image's alt text).
+function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, literalPlain, bareText, fragment) {
     var body = MdHtml.documentText(text)
     // Plain prose returns directly; plain table cells use the bulk escaper before any markup is emitted.
     if (!/[`$[\]<>\\!*_]| {2}\n|https?:\/\/|www\./.test(body)
@@ -44,6 +44,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
     var numbered = 0
     var imageMark = -1
     var imageDepth = -1
+    var line = Ent.lineState(fragment !== true)
 
     // Join strings, -1-index token references and emphasis marks; inside an emphasis tag or a label a newline is a space, which the renderer would drop.
     function renderFrom(from, flat, alt) {
@@ -234,6 +235,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
                 while (delims.length > 0 && delims[delims.length - 1].at >= out.length)
                     delims.pop()
                 out.push(made)
+                Ent.lineRestart(line, out, made)
                 i = j
             } else {
                 out.push("&#93;")
@@ -247,7 +249,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             continue
         }
         if (c === "&") {
-            var spaces = Ent.spaceRunAt(body, i, out)
+            var spaces = Ent.spaceRunAt(body, i, out, Ent.lineBlank(line, out), fragment !== true)
             if (spaces !== null) {
                 out.length -= spaces.trim
                 out.push(spaces.text)

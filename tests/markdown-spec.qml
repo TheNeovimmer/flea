@@ -48,8 +48,8 @@ Item {
         "GFM autolink": 11,
         "GFM tagfilter": 0,
         "GFM table forms": 13,
-        "Entity forms": 14,
-        "Definition forms": 1
+        "Entity forms": 15,
+        "Definition forms": 2
     })
 
     TextEdit {
