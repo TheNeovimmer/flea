@@ -42,7 +42,7 @@ colwatch_wait() {
     fail "colwatch: step $step never showed $name $verdict in the $slot column, last read: $last"
 }
 
-# Wait until the cursor rests on a folder row by name, read from the view on screen (rowAt reads the hidden list's delegates in Columns), and the child column draws its seed file.
+# Wait until the cursor rests on a folder row by name, read from the view on screen (rowAt reads the hidden list's delegates in Columns), and the child column draws that folder's own marker.
 colwatch_cursor_on() {
     local name="$1" deadline
     deadline=$((SECONDS + colwatch_budget_s))
@@ -51,7 +51,7 @@ colwatch_cursor_on() {
         sleep "$colwatch_poll_s"
     done
     [[ "$(ipc visibleRowName "$(ipc cursor)")" == "$name" ]] || fail "colwatch: the cursor is on '$(ipc visibleRowName "$(ipc cursor)")', not $name"
-    colwatch_wait "cursor-$name" child has seed.txt
+    colwatch_wait "cursor-$name" child has "here-$name.txt"
 }
 
 case_colwatch() {
@@ -62,6 +62,7 @@ case_colwatch() {
     for i in $(seq -w 1 "$colwatch_folders"); do
         mkdir "$col/d$i"
         printf 'seed\n' > "$col/d$i/seed.txt"
+        printf 'here\n' > "$col/d$i/here-d$i.txt"
     done
     printf 'beside\n' > "$dir/beside.txt"
     launch "$col"
