@@ -113,6 +113,14 @@ fn a_warm_start_names_its_kinds_after_the_helper_and_never_widens_the_jail() {
 }
 
 #[test]
+fn a_reporting_start_names_the_flag_last_and_widens_nothing() {
+    let got = reporting(figure_argv(Path::new("/usr/bin/qjs"), Path::new("/ui/vendor"), Some(Path::new("/c/k")), &["math"]));
+    assert_eq!(got[got.len() - 3..], ["--bytecode=/c/k", "--warm=math", "--report"]);
+    assert!(!got.join(" ").contains("--bind "), "nothing writable");
+    assert!(!argv_for("/usr/bin/qjs").iter().any(|a| a == REPORT_FLAG), "a plain start never reports");
+}
+
+#[test]
 fn only_known_kinds_survive_the_warm_argument() {
     assert_eq!(warm_kinds(None), Vec::<&str>::new());
     assert_eq!(warm_kinds(Some("--warm=mermaid,../x,math,mermaid")), ["mermaid", "math"]);

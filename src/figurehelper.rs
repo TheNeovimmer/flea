@@ -65,6 +65,17 @@ pub fn figure_argv(qjs: &Path, vendor: &Path, bytecode: Option<&Path>, warm: &[&
     sandbox::wrap_readonly_extra(&inner, &refs)
 }
 
+// The helper's own flag that prints one line per bundle it loads, saying whether it came from bytecode or from source.
+pub const REPORT_FLAG: &str = "--report";
+// A test hook, and only a test hook: "1" makes every start a reporting one.
+pub const REPORT_ENV: &str = "FLEA_FIGURE_REPORT";
+
+// The same argv, asking the helper to say where each bundle came from.
+pub fn reporting(mut argv: Vec<String>) -> Vec<String> {
+    argv.push(REPORT_FLAG.to_string());
+    argv
+}
+
 // Checked in order, so a missing sandbox refuses before anything is probed.
 pub fn resolve_with(sandbox_ok: bool, qjs: &Path, ui: Option<&Path>, bytecode: Option<&Path>, warm: &[&str]) -> Result<Vec<String>, String> {
     if !sandbox_ok {
@@ -121,10 +132,11 @@ pub fn warm_kinds(arg: Option<&str>) -> Vec<&'static str> {
 pub fn resolve(warm: &[&str]) -> Result<Vec<String>, String> {
     let (qjs, ui) = (qjs_path(), paths::ui_dir());
     let source = resolve_with(sandbox::available(), &qjs, ui.as_deref(), None, warm)?;
-    match ui.as_deref().and_then(|root| bytecode_dir(&qjs, root)) {
-        Some(dir) => resolve_with(true, &qjs, ui.as_deref(), Some(&dir), warm),
-        None => Ok(source),
-    }
+    let argv = match ui.as_deref().and_then(|root| bytecode_dir(&qjs, root)) {
+        Some(dir) => resolve_with(true, &qjs, ui.as_deref(), Some(&dir), warm)?,
+        None => source,
+    };
+    Ok(if std::env::var_os(REPORT_ENV).is_some_and(|v| v == "1") { reporting(argv) } else { argv })
 }
 
 // `warm` is the optional `--warm=KINDS` argument: those bundles load before the first request.

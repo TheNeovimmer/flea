@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-# Times a fresh figure helper from spawn to its first answer, n runs per case, as median and range: flea-figure-bench [--runs N] [--cases a,b] [--warm] -- CMD...
-# With --warm the helper starts with --warm=KIND, and the clock starts when it announces it is ready, so the figure is asked of a warm helper.
+# Times a fresh figure helper from spawn to its first answer, n runs per case, as median and range: flea-figure-bench [--runs N] [--cases a,b] [--warm] -- CMD...; with --warm the clock starts when the helper announces it is ready.
 import json
 import statistics
 import subprocess

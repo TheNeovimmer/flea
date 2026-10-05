@@ -11,7 +11,7 @@ globalThis.clearTimeout = os.clearTimeout;
 var worker = await import("../js/FigureWorker.mjs");
 var mathApi = null;
 var mermaidApi = null;
-// Sample argv: figure-helper.mjs --bytecode=/home/gm/.cache/flea/figures/<key> --warm=mermaid,math; each flag is optional.
+// Sample argv: figure-helper.mjs --bytecode=/home/gm/.cache/flea/figures/<key> --warm=mermaid,math --report; each flag is optional.
 function flagValue(name) {
     var prefix = "--" + name + "=";
     var found = scriptArgs.slice(1).find(function (arg) { return arg.startsWith(prefix); });
@@ -24,6 +24,8 @@ var KINDS = ["math", "mermaid"];
 // The kinds a warm start loads before the first request, so the first figure finds its bundle ready.
 var warmKinds = flagValue("warm").split(",").filter(function (kind, at, all) { return KINDS.includes(kind) && all.indexOf(kind) === at; });
 var ERROR_WORDS = 160;
+// With --report each bundle load prints {"id":0,"bundle":"math","from":"bytecode"} before the answer that needed it, so a silent fallback to source is visible.
+var reportLoads = scriptArgs.slice(1).includes("--report");
 
 function failText(e) {
     var msg = String((e && e.message) || e).split("\n")[0].slice(0, ERROR_WORDS);
@@ -38,14 +40,21 @@ function answer(out) {
 // A bundle from its bytecode, or from source when there is none or it will not load; one refusal sends every later bundle to source too.
 async function bundleOf(kind) {
     var spec = bytecode ? bytecode.BUNDLES[kind] : null;
+    var api = null;
+    var from = "source";
     if (spec) {
         try {
-            return await bytecode.loadBundle(bytecode.readBytes(bytecodeDir + "/" + spec.blob), spec.global);
+            api = await bytecode.loadBundle(bytecode.readBytes(bytecodeDir + "/" + spec.blob), spec.global);
+            from = "bytecode";
         } catch (e) {
             bytecode = null;
         }
     }
-    return kind === "math" ? await import("./math.mjs") : await import("./mermaid.mjs");
+    if (!api)
+        api = kind === "math" ? await import("./math.mjs") : await import("./mermaid.mjs");
+    if (reportLoads)
+        answer({ id: 0, bundle: kind, from: from });
+    return api;
 }
 
 function themeOf(req) {

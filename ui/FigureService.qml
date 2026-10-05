@@ -307,15 +307,18 @@ Item {
     }
 
     // A document with figures is on screen and none is asked for yet: start the helper now, so it is warm when they are asked.
-    function warm(blocks) {
+    // `themes` maps each kind to the theme the preview asks its figures under, so the warm query names the same cache keys an ask will.
+    function warm(blocks, themes) {
         if (!root.available || root.stopping || root.starting || helper.running)
             return false;
         var kinds = [];
-        var figures = [];
+        var keys = [];
         for (var i = 0; i < blocks.length; i++) {
             if (blocks[i].type !== "figure")
                 continue;
-            figures.push(blocks[i].kind + "\n" + blocks[i].source);
+            var theme = themes ? themes[blocks[i].kind] : undefined;
+            // The preview asks every figure as a display figure; a kind with no theme has no key and so is never known.
+            keys.push(theme ? root.cacheKeyOf(blocks[i].kind, blocks[i].source, theme, true) : "");
             if (kinds.indexOf(blocks[i].kind) < 0)
                 kinds.push(blocks[i].kind);
         }
@@ -325,7 +328,7 @@ Item {
         // A document whose figures are all on disk likely needs no helper, so the cache is asked before one is started.
         if (disk.available) {
             root.warmQuery = ++root.seq;
-            disk.ask(root.warmQuery, figures);
+            disk.ask(root.warmQuery, keys);
             return true;
         }
         return root.ensureHelper();

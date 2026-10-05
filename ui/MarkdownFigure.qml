@@ -66,12 +66,20 @@ Item {
     // Offscreen delegates retain settled figures and send no requests.
     property bool inView: true
 
-    function hexTheme() {
+    // The theme an ask carries, given the label advances its kind sends; the preview's warm query builds the same one, so its cache keys match.
+    function themeWith(advances, boldAdvances) {
         return { bg: root.bgHex, fg: root.fgHex, accent: root.accentHex,
             font: root.fontFamily, bodyPx: root.bodyPx,
             exPx: Math.round(root.xHeight * root.xHeightRounding) / root.xHeightRounding,
-            advances: root.advances, boldAdvances: root.boldAdvances,
+            advances: advances, boldAdvances: boldAdvances,
             muted: root.mutedHex, surface: root.surfaceHex };
+    }
+    function hexTheme() {
+        return root.themeWith(root.advances, root.boldAdvances);
+    }
+    // The theme a figure of `kind` is asked under here, whatever this item's own kind.
+    function themeOfKind(kind) {
+        return kind === "mermaid" ? root.themeWith(root.advanceTable(regularMetrics), root.advanceTable(boldMetrics)) : root.themeWith([], []);
     }
     // Nothing is asked until the figure is created, so its construction-time assignments cost no request.
     property bool created: false

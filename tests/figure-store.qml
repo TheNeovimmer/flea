@@ -18,6 +18,8 @@ ShellRoot {
     property int index: -1
     property bool waiting: false
     property int ticket: 0
+    // An id no service ticket ever has, so a direct get on the store is told from the service's own.
+    readonly property int probeId: 1000000
     property string drawn: ""
     property int sendsMark: 0
     property int exitsMark: 0
@@ -27,9 +29,14 @@ ShellRoot {
     readonly property int watchdogMs: 90000
     readonly property var theme: ({ bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 14, exPx: 7 })
     readonly property var otherTheme: ({ bg: "#101315", fg: "#c0caf5", accent: "#f7768e", font: "monospace", bodyPx: 14, exPx: 7 })
+    readonly property var unseenTheme: ({ bg: "#101315", fg: "#c0caf5", accent: "#e0af68", font: "monospace", bodyPx: 14, exPx: 7 })
     readonly property var advancesA: ({ bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 14, exPx: 7, advances: [500, 600], boldAdvances: [550, 650] })
     readonly property var advancesB: ({ bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 14, exPx: 7, advances: [500, 601], boldAdvances: [550, 650] })
     readonly property string source: "\\frac{a}{b}"
+    // Most of an entry's size limit, so a kill instead of a drain leaves the store with only a pipe's worth of it.
+    readonly property int largeSvgChars: 3500000
+    readonly property string largeSvg: "<svg>" + "x".repeat(shell.largeSvgChars) + "</svg>"
+    readonly property string largeKey: Flea.FigureService.cacheKeyOf("math", "put then stop", shell.theme, true)
     Component.onCompleted: {
         Flea.ViewState.setTextSize({ mode: 14 })
         Flea.FigureService.idleExitMs = shell.idleExitMs
@@ -101,16 +108,35 @@ ShellRoot {
           verify: function (svg, error, service, disk) {
               shell.check(shell.drew(svg, error) && service.sends === shell.sendsMark && disk.hits === shell.hitsMark + 1, "the first advance table's figure is still on disk")
           } },
-        // Every figure of this document is on disk, so warming it asks the store and starts no helper.
-        { act: function () { Flea.FigureService.warm([shell.figureBlock]) },
+        // Every figure of this document is on disk under the theme it is asked under, so warming it asks the store and starts no helper.
+        { act: function () { Flea.FigureService.warm([shell.figureBlock], { math: shell.theme }) },
           known: function (all, service) {
               shell.check(all === true && !service.helperRunning && !service.starting && service.sends === shell.sendsMark, "a document whose figures are all on disk starts no helper")
           } },
+        // The same figure under a theme never drawn is not known, so the helper starts warm; an idle stop meanwhile is refused and the reply still lands.
+        { act: function () {
+              Flea.FigureService.warm([shell.figureBlock], { math: shell.unseenTheme })
+              shell.check(Flea.FigureService.persistent.stop() === false, "an idle stop is refused while the store owes the warm query's reply")
+          },
+          known: function (all, service) {
+              shell.check(all === false && (service.helperRunning || service.starting), "a figure drawn under another accent does not keep the helper from starting warm")
+          } },
         // One figure never drawn: the answer is not all, and the helper starts warm.
-        { act: function () { Flea.FigureService.warm([shell.figureBlock, shell.unknownBlock]) },
+        { act: function () { Flea.FigureService.warm([shell.figureBlock, shell.unknownBlock], { math: shell.theme }) },
           known: function (all, service) {
               shell.check(all === false, "a document with a figure never drawn is not all known")
               shell.check(service.helperRunning || service.starting, "the helper is started warm for it")
+          } },
+        // A get starts the store, then a large put and an idle stop land in one turn: stdin closes and the store drains, where a kill would lose the entry.
+        { act: function () { Flea.FigureService.persistent.get(shell.probeId, "math\nnever stored\nfalse\nx") },
+          answered: function (disk) {
+              disk.put(shell.largeKey, shell.largeSvg)
+              shell.check(disk.stop() === true, "an idle stop with only a put in flight is accepted")
+              shell.verdictDone()
+          } },
+        { act: function () { shell.ask("math", "put then stop", shell.theme) },
+          verify: function (svg, error, service, disk) {
+              shell.check(svg === shell.largeSvg && service.sends === shell.sendsMark && disk.hits === shell.hitsMark + 1, "the put that an idle stop followed at once is on disk")
           } }
     ]
 
@@ -155,6 +181,11 @@ ShellRoot {
         target: Flea.FigureService.persistent
         // Deferred, so the next case never starts inside the change that announced the stop.
         function onActiveChanged() { Qt.callLater(shell.settle) }
+        function onAnswered(id, svg) {
+            var current = shell.cases[shell.index]
+            if (id === shell.probeId && current && current.answered)
+                current.answered(Flea.FigureService.persistent)
+        }
         function onKnown(id, all) {
             var current = shell.cases[shell.index]
             if (!current || !current.known)

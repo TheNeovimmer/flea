@@ -89,9 +89,12 @@ fn a_corrupt_entry_is_a_miss_and_the_next_put_replaces_it() {
     flipped[at] ^= 0x40;
     let mut longer = good.clone();
     longer.push(b'x');
+    // Only the format line's version digit changes, so the key and both lengths still match and only the magic can refuse it.
+    let mut foreign_magic = good.clone();
+    foreign_magic[FORMAT.len() - 1] = b'2';
     let wrong_length = String::from_utf8(good.clone()).expect("text").replacen(&format!("{} {}", k.len(), SVG.len()), &format!("{} {}", k.len(), SVG.len() + 1), 1).into_bytes();
     let cases: Vec<(&str, Vec<u8>)> = vec![("an empty file", Vec::new()), ("a truncated file", good[..good.len() - 1].to_vec()), ("a trailing byte", longer),
-        ("a flipped byte", flipped), ("a foreign magic", good.iter().map(|b| if *b == b'1' { b'2' } else { *b }).collect()),
+        ("a flipped byte", flipped), ("a foreign magic", foreign_magic),
         ("a wrong svg length", wrong_length), ("binary noise", vec![0xff; 300])];
     for (label, bytes) in cases {
         put(&store, &k, SVG, MAX_ENTRIES, MAX_BYTES).expect("put");
@@ -168,16 +171,34 @@ fn stale_scratch_is_swept_and_strangers_are_left_alone() {
 }
 
 #[test]
-fn known_asks_whether_any_theme_drew_the_source() {
+fn known_asks_whether_this_exact_key_was_drawn() {
     let dir = TestDir::new("figure-store-known");
     let store = dir.join("svg");
+    let flow = "flowchart TD\n    A --> B";
     put(&store, &key("math", THEME_A, true, "x^2"), SVG, MAX_ENTRIES, MAX_BYTES).expect("put");
-    put(&store, &key("mermaid", THEME_B, false, "flowchart TD\n    A --> B"), SVG, MAX_ENTRIES, MAX_BYTES).expect("put");
-    let figure = |s: &str| s.to_string();
-    assert!(known(&store, &[figure("math\nx^2"), figure("mermaid\nflowchart TD\n    A --> B")]));
-    assert!(!known(&store, &[figure("math\nx^2"), figure("math\ny^2")]), "one unknown figure is enough to warm");
-    assert!(!known(&store, &[figure("mermaid\nx^2")]), "the kind is part of the name");
-    assert!(!known(&store, &[]) && !known(&dir.join("absent"), &[figure("math\nx^2")]));
+    put(&store, &key("mermaid", THEME_B, false, flow), SVG, MAX_ENTRIES, MAX_BYTES).expect("put");
+    assert!(known(&store, &[key("math", THEME_A, true, "x^2"), key("mermaid", THEME_B, false, flow)]));
+    assert!(!known(&store, &[key("math", THEME_B, true, "x^2")]), "a figure drawn under another theme is not known");
+    assert!(!known(&store, &[key("math", THEME_A, false, "x^2")]), "nor under another display mode");
+    assert!(!known(&store, &[key("math", ADVANCES, true, "x^2")]), "nor under another advance table");
+    assert!(!known(&store, &[key("math", THEME_A, true, "x^2"), key("math", THEME_A, true, "y^2")]), "one unknown figure is enough to warm");
+    assert!(!known(&store, &[key("mermaid", THEME_A, true, "x^2")]), "the kind is part of the key");
+    assert!(!known(&store, &[]) && !known(&dir.join("absent"), &[key("math", THEME_A, true, "x^2")]));
+    let linked = key("math", THEME_A, true, "z^2");
+    std::os::unix::fs::symlink(dir.file("elsewhere", "x"), store.join(entry_name(&linked).expect("name"))).expect("link");
+    assert!(!known(&store, &[linked]), "a linked entry is not known");
+}
+
+#[test]
+fn a_linked_svg_directory_is_not_used() {
+    let dir = TestDir::new("figure-store-linkdir");
+    let real = dir.join("real");
+    fs::create_dir(&real).expect("real dir");
+    let link = dir.join("svg");
+    std::os::unix::fs::symlink(&real, &link).expect("link at the store's path");
+    assert_eq!(safe_dir(link), None, "a link at the store directory is never followed");
+    assert_eq!(safe_dir(real.clone()), Some(real), "a real directory is used");
+    assert_eq!(safe_dir(dir.join("absent")), Some(dir.join("absent")), "one not made yet is used and made by the first put");
 }
 
 #[test]
@@ -191,13 +212,13 @@ fn the_wire_answers_get_put_and_known_and_ignores_the_rest() {
     assert_eq!(answer(Some(&store), &get_line).as_deref(), Some("{\"id\":7,\"miss\":true}"));
     assert_eq!(answer(Some(&store), &line("put", &format!("\"key\":\"{wire_key}\",\"svg\":\"{}\"", json::escape(SVG)))), None, "a put has no reply");
     assert_eq!(answer(Some(&store), &get_line), Some(format!("{{\"id\":7,\"svg\":\"{}\"}}", json::escape(SVG))));
-    let figures = json::escape("mermaid\nflowchart TD\n    A[\"q\"] --> B");
-    assert_eq!(answer(Some(&store), &line("known", &format!("\"id\":8,\"figures\":[\"{figures}\"]"))).as_deref(), Some("{\"id\":8,\"known\":true}"));
-    assert_eq!(answer(Some(&store), &line("known", "\"id\":9,\"figures\":[\"math\\nnope\"]")).as_deref(), Some("{\"id\":9,\"known\":false}"));
+    let figures = json::escape(&k);
+    assert_eq!(answer(Some(&store), &line("known", &format!("\"id\":8,\"keys\":[\"{figures}\"]"))).as_deref(), Some("{\"id\":8,\"known\":true}"));
+    assert_eq!(answer(Some(&store), &line("known", "\"id\":9,\"keys\":[\"math\\nnope\"]")).as_deref(), Some("{\"id\":9,\"known\":false}"));
     for ignored in ["", "not json", "{\"op\":\"drop\",\"id\":1}", "{\"id\":1}", "{\"op\":\"get\"}"] {
         assert_eq!(answer(Some(&store), ignored), None, "{ignored:?}");
     }
     // With the cache off a get is a miss, a put does nothing and nothing is known.
     assert_eq!(answer(None, &get_line).as_deref(), Some("{\"id\":7,\"miss\":true}"));
-    assert_eq!(answer(None, &line("known", &format!("\"id\":8,\"figures\":[\"{figures}\"]"))).as_deref(), Some("{\"id\":8,\"known\":false}"));
+    assert_eq!(answer(None, &line("known", &format!("\"id\":8,\"keys\":[\"{figures}\"]"))).as_deref(), Some("{\"id\":8,\"known\":false}"));
 }

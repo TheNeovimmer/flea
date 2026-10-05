@@ -82,9 +82,14 @@ for (const [, source] of diagrams) {
 }
 check(drawnMermaid === total, `the source path draws every corpus diagram (${drawnMermaid} of ${total})`);
 check(identicalMermaid === total, `every diagram answers the same bytes from bytecode (${identicalMermaid} of ${total})`);
-for (const source of ["not a diagram {{{", "flowchart TD\n    click A href \"http://127.0.0.1:18037/evil\"\n    A --> B"]) {
-    check(answer("mermaid", source, true, theme, sourceMermaid) === answer("mermaid", source, true, theme, compiledMermaid), "a refused diagram refuses the same way: " + JSON.stringify(source.slice(0, 16)));
-}
+// Whatever the source path answers, bytecode answers the same bytes: a refusal for the bad diagram, and a figure with the link unwrapped for the hostile one.
+const refused = [answer("mermaid", "not a diagram {{{", true, theme, sourceMermaid), answer("mermaid", "not a diagram {{{", true, theme, compiledMermaid)];
+check(refused[0].startsWith("error") && refused[1].startsWith("error"), "both paths refuse a diagram that is not one");
+check(refused[0] === refused[1], "and refuse it the same way");
+const click = "flowchart TD\n    click A href \"http://127.0.0.1:18037/evil\"\n    A --> B";
+const unwrapped = [answer("mermaid", click, true, theme, sourceMermaid), answer("mermaid", click, true, theme, compiledMermaid)];
+check(unwrapped.every((got) => got.startsWith("svg <svg") && !got.includes("127.0.0.1")), "both paths draw the hostile click with no link");
+check(unwrapped[0] === unwrapped[1], "and draw the same bytes");
 
 // Anything that is not whole bytecode is refused before it runs.
 const blob = new Uint8Array(bytecode.compileBundle(readText(resolve(root, "ui/vendor/math.mjs")), bytecode.BUNDLES.math.global));

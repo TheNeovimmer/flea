@@ -28,6 +28,8 @@ Item {
     property bool stopping: false
     property var queued: []
     property var outstanding: ({})
+    // The replies still owed; a notifying count, because a var property announces only a reassignment and the reply timer binds to this.
+    property int owed: 0
 
     // Flea's own binary, found the way the helper's is; FLEA_BIN is the dev seam.
     Process {
@@ -66,18 +68,16 @@ Item {
             root.stopping = false;
             if (!wasStopping)
                 root.fail();
-            // Lines sent while an idle stop was ending the process start it again.
-            else if (root.queued.length > 0) {
-                root.starting = true;
-                process.running = true;
-            }
+            // Lines sent while an idle stop was draining the process start it again.
+            else if (root.queued.length > 0)
+                root.begin();
         }
     }
 
     Timer {
         interval: root.pollMs
         repeat: true
-        running: Object.keys(root.outstanding).length > 0
+        running: root.owed > 0
         onTriggered: {
             for (var id in root.outstanding) {
                 if (Date.now() - root.outstanding[id].sentAt > root.replyMs) {
@@ -98,6 +98,7 @@ Item {
         }
         var waiting = root.outstanding;
         root.outstanding = {};
+        root.owed = 0;
         for (var id in waiting) {
             if (waiting[id].op === "get")
                 root.answered(Number(id), "");
@@ -106,11 +107,31 @@ Item {
         }
     }
 
+    // An idle stop closes the store's stdin and lets it drain: it answers every line already sent, commits every put and exits at EOF, so a kill never loses either.
+    // A store that still owes a reply or holds a queued line is left running; the service stops it at the next idle after the reply.
     function stop() {
-        if (process.running && !root.stopping) {
-            root.stopping = true;
-            process.running = false;
-        }
+        if (!process.running || root.starting || root.stopping || root.owed > 0 || root.queued.length > 0)
+            return false;
+        root.stopping = true;
+        process.stdinEnabled = false;
+        return true;
+    }
+
+    // Starts the process with its stdin open, which an earlier stop closed.
+    function begin() {
+        root.starting = true;
+        process.stdinEnabled = true;
+        process.running = true;
+    }
+
+    function owe(id, op) {
+        root.outstanding[id] = { op: op, sentAt: Date.now() };
+        root.owed = Object.keys(root.outstanding).length;
+    }
+
+    function settle(id) {
+        delete root.outstanding[id];
+        root.owed = Object.keys(root.outstanding).length;
     }
 
     function send(line) {
@@ -121,18 +142,16 @@ Item {
             return true;
         }
         root.queued.push(line);
-        if (!root.starting && !root.stopping) {
-            root.starting = true;
-            process.running = true;
-        }
+        if (!root.starting && !root.stopping)
+            root.begin();
         return true;
     }
 
     // Sample input: {"op":"get","id":3,"key":"math\n#101315|...\ntrue\nx^2"}.
     function get(id, key) {
-        root.outstanding[id] = { op: "get", sentAt: Date.now() };
+        root.owe(id, "get");
         if (!root.send(JSON.stringify({ op: "get", id: id, key: key }) + "\n")) {
-            delete root.outstanding[id];
+            root.settle(id);
             Qt.callLater(function () { root.answered(id, ""); });
         }
     }
@@ -143,11 +162,11 @@ Item {
             root.puts++;
     }
 
-    // Sample input: {"op":"known","id":4,"figures":["math\nx^2","mermaid\nflowchart TD\n    A --> B"]}.
-    function ask(id, figures) {
-        root.outstanding[id] = { op: "known", sentAt: Date.now() };
-        if (!root.send(JSON.stringify({ op: "known", id: id, figures: figures }) + "\n")) {
-            delete root.outstanding[id];
+    // Sample input: {"op":"known","id":4,"keys":["math\n#101315|...\ntrue\nx^2","mermaid\n#101315|...\ntrue\nflowchart TD\n    A --> B"]}.
+    function ask(id, keys) {
+        root.owe(id, "known");
+        if (!root.send(JSON.stringify({ op: "known", id: id, keys: keys }) + "\n")) {
+            root.settle(id);
             Qt.callLater(function () { root.known(id, false); });
         }
     }
@@ -160,10 +179,13 @@ Item {
         } catch (e) {
             return;
         }
+        // A bare null parses and has no id to read.
+        if (message === null)
+            return;
         var asked = root.outstanding[message.id];
         if (asked === undefined)
             return;
-        delete root.outstanding[message.id];
+        root.settle(message.id);
         if (asked.op === "known") {
             root.known(message.id, message.known === true);
         } else if (message.svg !== undefined) {

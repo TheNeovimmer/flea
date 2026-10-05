@@ -59,11 +59,15 @@ fn the_key_follows_the_engine_and_every_keyed_source() {
         let path = ui.join(relative);
         let original = fs::read(&path).expect("source");
         fs::write(&path, [original.as_slice(), b" "].concat()).expect("changed source");
-        assert_ne!(key(&qjs, &ui), Some(base.clone()), "{relative} is part of the key");
+        let changed = key(&qjs, &ui);
+        assert!(changed.is_some(), "{relative} changed still keys");
+        assert_ne!(changed, Some(base.clone()), "{relative} is part of the key");
         fs::write(&path, original).expect("restored source");
     }
     fs::write(&qjs, "engine two\n").expect("changed engine");
-    assert_ne!(key(&qjs, &ui), Some(base.clone()), "the engine binary is part of the key");
+    let other_engine = key(&qjs, &ui);
+    assert!(other_engine.is_some(), "another engine still keys");
+    assert_ne!(other_engine, Some(base.clone()), "the engine binary is part of the key");
     fs::write(&qjs, "engine one\n").expect("restored engine");
     assert_eq!(key(&qjs, &ui), Some(base.clone()));
     // An engine library beside the binary is part of the build identity too.
@@ -75,7 +79,9 @@ fn the_key_follows_the_engine_and_every_keyed_source() {
     let with_library = key(&beside, &ui).expect("a key");
     assert_ne!(with_library, without_library, "a library beside the engine is part of the key");
     fs::write(dir.join("home/lib/libqjs.so.0.1"), "library two").expect("changed library");
-    assert_ne!(key(&beside, &ui), Some(with_library), "so is its content");
+    let other_library = key(&beside, &ui);
+    assert!(other_library.is_some(), "another library still keys");
+    assert_ne!(other_library, Some(with_library), "so is its content");
 }
 
 #[test]
@@ -148,6 +154,17 @@ fn a_directory_is_trusted_only_when_it_is_what_its_manifest_says() {
     assert_eq!(verified(&live, &key), None, "an oversize manifest is not read");
     fs::remove_file(live.join(MANIFEST)).expect("remove manifest");
     assert_eq!(verified(&live, &key), None, "no manifest");
+}
+
+#[test]
+fn a_linked_key_directory_is_refused_even_with_a_matching_manifest() {
+    let dir = TestDir::new("figure-verified-link");
+    let (live, key) = cache_dir(&dir);
+    let moved = dir.join("elsewhere");
+    fs::rename(&live, &moved).expect("move the real directory away");
+    std::os::unix::fs::symlink(&moved, &live).expect("a link at the key's path");
+    assert_eq!(verified(&moved, &key), Some(moved.clone()), "the directory behind the link is itself fine");
+    assert_eq!(verified(&live, &key), None, "a link at the key directory is never followed");
 }
 
 #[test]

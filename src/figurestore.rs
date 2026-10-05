@@ -20,6 +20,8 @@ pub const MAX_ENTRIES: usize = 512;
 pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 // A figure over this is drawn every time rather than kept, and a file over it is not one of ours.
 const MAX_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
+// The room a size line and its separators take beyond the entry's key, format line and svg.
+const HEADER_SLACK_BYTES: u64 = 64;
 // A request line is one figure's source and a theme, so anything near this is not one.
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 // A writer that died leaves scratch; it is swept once it is older than any live write.
@@ -88,7 +90,7 @@ fn decode(bytes: &[u8], key: &str) -> Option<String> {
 pub fn get(dir: &Path, key: &str) -> Option<String> {
     let mut file = fs::OpenOptions::new().read(true).custom_flags(O_NOFOLLOW).open(dir.join(entry_name(key)?)).ok()?;
     let meta = file.metadata().ok()?;
-    if !meta.is_file() || meta.len() > MAX_ENTRY_BYTES + key.len() as u64 + FORMAT.len() as u64 + 64 {
+    if !meta.is_file() || meta.len() > MAX_ENTRY_BYTES + key.len() as u64 + FORMAT.len() as u64 + HEADER_SLACK_BYTES {
         return None;
     }
     let mut bytes = Vec::with_capacity(meta.len() as usize);
@@ -151,24 +153,24 @@ pub fn evict(dir: &Path, entries: usize, bytes: u64) {
     }
 }
 
-// True when every listed figure ("kind\nsource") has an entry under some theme, so a warm helper would likely go unused.
-pub fn known(dir: &Path, figures: &[String]) -> bool {
-    let Ok(listing) = fs::read_dir(dir) else { return false };
-    let names: Vec<String> = listing.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| is_entry(n)).collect();
-    !figures.is_empty()
-        && figures.iter().all(|figure| {
-            figure.split_once('\n').is_some_and(|(kind, source)| {
-                let prefix = format!("{}-", source_sum(kind, source));
-                names.iter().any(|name| name.starts_with(&prefix))
-            })
+// True when every listed key has its own entry, a plain file, so a warm helper would likely go unused; a theme, display or advance drawn otherwise is not known.
+pub fn known(dir: &Path, keys: &[String]) -> bool {
+    !keys.is_empty()
+        && keys.iter().all(|key| {
+            entry_name(key).is_some_and(|name| fs::symlink_metadata(dir.join(name)).is_ok_and(|meta| meta.is_file()))
         })
 }
 
-fn store_dir() -> Option<PathBuf> {
-    figurecache::store_root().map(|root| root.join(SVG_DIR))
+// The store directory unless a link sits there: get and put would follow it out of the cache; a swap after this check is the same-user race the 0700 root bounds.
+fn safe_dir(dir: PathBuf) -> Option<PathBuf> {
+    fs::symlink_metadata(&dir).map_or(true, |meta| !meta.file_type().is_symlink()).then_some(dir)
 }
 
-// Sample input: {"op":"get","id":3,"key":"math\n#101315|...\ntrue\nx^2"}; put carries "svg" and no id, known carries "figures":["math\nx^2"].
+fn store_dir() -> Option<PathBuf> {
+    figurecache::store_root().map(|root| root.join(SVG_DIR)).and_then(safe_dir)
+}
+
+// Sample input: {"op":"get","id":3,"key":"math\n#101315|...\ntrue\nx^2"}; put carries "svg" and no id, known carries "keys":["math\n#101315|...\ntrue\nx^2"].
 fn answer(dir: Option<&Path>, line: &str) -> Option<String> {
     let op = json::field_str(line, "op")?;
     let id = json::field_usize(line, "id");
@@ -185,7 +187,7 @@ fn answer(dir: Option<&Path>, line: &str) -> Option<String> {
             }
             None
         }
-        ("known", _) => reply(format!("\"known\":{}", dir.is_some_and(|dir| known(dir, &json::field_str_array(line, "figures"))))),
+        ("known", _) => reply(format!("\"known\":{}", dir.is_some_and(|dir| known(dir, &json::field_str_array(line, "keys"))))),
         _ => None,
     }
 }

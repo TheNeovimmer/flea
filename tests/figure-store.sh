@@ -49,8 +49,8 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 120 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE .*'
-# Sample input: FIGURE_STORE 10 checks, 0 failed.
-expected=11
+# Sample input: FIGURE_STORE 15 checks, 0 failed.
+expected=15
 if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE $expected checks, 0 failed$"; then
     printf 'figure-store.sh: FAIL expected %s checks, 0 failed\n' "$expected"
     printf '%s\n' "$output" | grep -aE 'ERROR|TypeError|ReferenceError|flea:' | head -10
@@ -63,3 +63,30 @@ if [ -n "$warnings" ]; then
     exit 1
 fi
 echo "figure-store: $expected check(s), 0 failed"
+
+# A store that reads every line and never answers: the same service, with Flea's own binary behind a stub whose store mode only reads.
+mkdir -p "$test_root/hung-config" "$test_root/hung-bin" || exit 1
+ln -s "$PWD/ui" "$test_root/hung-config/flea" || exit 1
+ln -s "$(readlink -f ui/boot/Commons)" "$test_root/hung-config/Commons" || exit 1
+ln -s "$(readlink -f ui/boot/Ui)" "$test_root/hung-config/Ui" || exit 1
+cp tests/figure-store-hung.qml "$test_root/hung-config/shell.qml" || exit 1
+cat > "$test_root/hung-bin/flea" <<STUB
+#!/bin/bash
+[ "\$1" = "--figure-store" ] && exec cat > /dev/null
+exec "$fleabin" "\$@"
+STUB
+chmod +x "$test_root/hung-bin/flea" || exit 1
+output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$test_root/hung-bin/flea" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 120 qs -p "$test_root/hung-config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$output" | grep -aoE 'FIGURE_STORE_HUNG .*'
+# Sample input: FIGURE_STORE_HUNG 3 checks, 0 failed.
+hung_expected=3
+if ! printf '%s\n' "$output" | grep -qE "FIGURE_STORE_HUNG $hung_expected checks, 0 failed$"; then
+    printf 'figure-store.sh: FAIL the hung store was not failed: expected %s checks, 0 failed\n' "$hung_expected"
+    printf '%s\n' "$output" | grep -aE 'ERROR|TypeError|ReferenceError|flea:' | head -10
+    exit 1
+fi
+echo "figure-store: $hung_expected hung-store check(s), 0 failed"

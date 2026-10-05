@@ -4,7 +4,7 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
-use crate::oflags::O_NOFOLLOW;
+use crate::oflags::{O_DIRECTORY, O_NOFOLLOW};
 
 // The first manifest line, so a future layout is a different file and not a misread one.
 const FORMAT: &str = "flea-figures 1";
@@ -193,7 +193,7 @@ pub fn manifest_text(key: &str, blobs: &[(String, u64, String)]) -> String {
     text
 }
 
-// The inverse of manifest_text; None for any other shape, an unknown blob or a missing one.
+// Sample input: "flea-figures 1\nkey 00112233445566778899aabbccddeeff\nmath.bc 12 0123456789abcdef0123456789abcdef\nmermaid.bc 34 0123456789abcdef0123456789abcdef\n"; None for any other shape, an unknown blob or a missing one.
 pub fn parse_manifest(text: &str) -> Option<(String, Vec<(String, u64, String)>)> {
     let mut lines = text.lines();
     if lines.next()? != FORMAT {
@@ -217,6 +217,8 @@ const MAX_MANIFEST_BYTES: u64 = 4096;
 
 // The directory when it holds exactly what its manifest says, for this key; any other state is None and nothing is deleted here.
 pub fn verified(dir: &Path, key: &str) -> Option<PathBuf> {
+    // O_NOFOLLOW below guards only a last component, so the key directory itself is opened without following a link; a swap after this open is the same-user race the 0700 root bounds, and the render jail still holds nothing writable.
+    let _held = fs::OpenOptions::new().read(true).custom_flags(O_DIRECTORY | O_NOFOLLOW).open(dir).ok()?;
     let mut text = String::new();
     let mut manifest = fs::OpenOptions::new().read(true).custom_flags(O_NOFOLLOW).open(dir.join(MANIFEST)).ok()?;
     let meta = manifest.metadata().ok()?;

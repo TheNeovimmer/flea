@@ -110,9 +110,13 @@ body = "".join(json.dumps(r) + "\n" for r in reqs[:3])
 body += "this is not json\n"
 body += "".join(json.dumps(r) + "\n" for r in reqs[3:])
 p = subprocess.run(command, input=body, capture_output=True, text=True, timeout=300)
+# Sample input: {"id":0,"bundle":"math","from":"bytecode"}, the load report a helper prints under FLEA_FIGURE_REPORT=1; it is not an answer.
+raw = p.stdout.splitlines()
+parsed = [json.loads(l) for l in raw]
+reports = [(a["bundle"], a["from"]) for a in parsed if "bundle" in a]
+lines = [a for a in parsed if "bundle" not in a]
 # The tag names this run's answers, so a later run over the bytecode can be compared byte for byte.
-open(outdir + "/answers-" + os.environ.get("FIG_TAG", "source") + ".txt", "w").write(p.stdout)
-lines = [json.loads(l) for l in p.stdout.splitlines()]
+open(outdir + "/answers-" + os.environ.get("FIG_TAG", "source") + ".txt", "w").write("".join(l + "\n" for l, a in zip(raw, parsed) if "bundle" not in a))
 reply_counts = Counter(a["id"] for a in lines)
 by_id = {a["id"]: a for a in lines}
 fails = []
@@ -125,6 +129,9 @@ request_counts = Counter(r["id"] for r in reqs)
 request_counts[0] += 1
 check(reply_counts == request_counts, "every request answered once under its own id")
 check(len(lines) == len(reqs) + 1, "reply count equals request count including the malformed line")
+expect = os.environ.get("FIG_EXPECT_FROM")
+if expect:
+    check(reports == [("math", expect), ("mermaid", expect)], "the helper loaded math and mermaid from %s, reported %s" % (expect, reports))
 check(p.returncode == 0, "EOF ends the helper with exit 0")
 check(p.stderr == "", "a clean run writes nothing on stderr")
 forbidden = ["http:", "https:", "@import", "<script", "<image", "foreignObject", "127.0.0.1"]
@@ -176,7 +183,10 @@ for runner in "${js_runners[@]}"; do
     "$runner" "$spaced/tests/mermaid-layout.mjs" || exit 1
 done
 
-if ! FLEA_QJS="$qjs" python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then
+# Under the launcher, the helper says where each bundle came from; a direct qjs run has no launcher and reports nothing.
+report_env=(FLEA_FIGURE_REPORT=1)
+[ "$jailed" -eq 1 ] && source_expect=(FIG_EXPECT_FROM=source) || source_expect=()
+if ! env FLEA_QJS="$qjs" "${report_env[@]}" "${source_expect[@]}" python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then
     echo "markdown-figures.sh: the helper run failed"
     exit 1
 fi
@@ -195,10 +205,20 @@ if [ "$jailed" -eq 1 ]; then
         exit 1
     }
     echo "PASS the compile jail built a bytecode directory"
-    if ! FIG_TAG=bytecode python3 "$test_root/drive.py" "${cached[@]}" "$fleabin" --figure-helper "$test_root"; then
+    if ! env "${report_env[@]}" FIG_EXPECT_FROM=bytecode FIG_TAG=bytecode python3 "$test_root/drive.py" "${cached[@]}" "$fleabin" --figure-helper "$test_root"; then
         echo "markdown-figures.sh: the bytecode helper run failed"
         exit 1
     fi
+    # The bytecode leg's own assertion must have teeth: a helper that ran from source, which answers the same bytes, is refused by it.
+    if env FLEA_QJS="$qjs" "${report_env[@]}" FIG_EXPECT_FROM=bytecode FIG_TAG=control python3 "$test_root/drive.py" "${engine[@]}" "$test_root" > "$test_root/control.log" 2>&1; then
+        echo "markdown-figures.sh: FAIL a helper that ran from source passed the bytecode leg's assertion"
+        exit 1
+    fi
+    grep -q 'FAIL the helper loaded math and mermaid from bytecode' "$test_root/control.log" || {
+        echo "markdown-figures.sh: FAIL the control run failed for another reason than the load report"
+        exit 1
+    }
+    echo "PASS the bytecode leg refuses a helper that answered from source"
     cmp -s "$test_root/answers-source.txt" "$test_root/answers-bytecode.txt" || {
         echo "markdown-figures.sh: FAIL the bytecode path answered other bytes than the source path"
         exit 1

@@ -2,39 +2,8 @@
 .import "figureserviceexit.js" as ExitSuite
 .import "figureservicedisk.js" as DiskSuite
 
-// Sample input: function ask(kind, source, display, theme) { ... } or onExited: function (...) { ... }.
 function block(source, marker) {
-    var at = source.indexOf(marker)
-    if (at < 0)
-        throw new Error("figureservice: missing " + marker)
-    var begin = source.indexOf("{", at + marker.length)
-    var depth = 1
-    var quote = ""
-    var comment = false
-    var i = begin + 1
-    for (; i < source.length && depth > 0; i++) {
-        var ch = source.charAt(i)
-        if (comment) {
-            if (ch === "\n")
-                comment = false
-        } else if (quote !== "") {
-            if (ch === "\\")
-                i++
-            else if (ch === quote)
-                quote = ""
-        } else if (ch === "/" && source.charAt(i + 1) === "/") {
-            comment = true
-        } else if (ch === '"' || ch === "'") {
-            quote = ch
-        } else if (ch === "{") {
-            depth++
-        } else if (ch === "}") {
-            depth--
-        }
-    }
-    if (begin < 0 || depth !== 0)
-        throw new Error("figureservice: unterminated " + marker)
-    return source.substring(begin + 1, i - 1)
+    return Source.block(source, marker)
 }
 
 function service() {
@@ -58,7 +27,7 @@ function service() {
     // The persistent cache stands off by default, so every case below meets the helper alone.
     var disk = { available: false, active: false, gets: [], puts: [], asks: [], stops: 0, stop: function () { this.stops++ },
         get: function (id, key) { this.gets.push({ id: id, key: key }) }, put: function (key, svg) { this.puts.push({ key: key, svg: svg }) },
-        ask: function (id, figures) { this.asks.push({ id: id, figures: figures }) } }
+        ask: function (id, keys) { this.asks.push({ id: id, keys: keys }) } }
     fake.disk = disk
     var Qt = { callLater: function (callback) { fake.deferred.push(callback) } }
     var Date = { now: function () { return fake.now } }

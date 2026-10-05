@@ -14,6 +14,11 @@ PREFIX = "flea-figure-bytecode-"
 BOUND_SECONDS = 120
 # prctl(2) PR_SET_CHILD_SUBREAPER: orphaned background builds become this process's children, so it can wait for them without polling.
 PR_SET_CHILD_SUBREAPER = 36
+# A key and its directory are 128 bits in hex; a bytecode blob's bytes are corrupted or flipped at these offsets.
+KEY_HEX_CHARS = 32
+BLOB_FLIP_OFFSET = 100
+# The first bytecode byte is the engine's format version, so any other value is refused at the read.
+BLOB_VERSION_OFFSET = 0
 THEME = {"bg": "#101315", "fg": "#c0caf5", "accent": "#7aa2f7", "font": "monospace", "bodyPx": 14}
 MATHS = ["\\frac{a}{b}", "\\int_0^1 x^2\\,dx", "\\sum_{n=1}^{\\infty}\\frac{1}{n^2}", "\\begin{matrix}a&b\\\\c&d\\end{matrix}", "x^2", "\\frac{unclosed"]
 DIAGRAMS = ["flowchart TD\n    A --> B", "sequenceDiagram\n    A->>B: hi", "stateDiagram-v2\n    A --> B", "classDiagram\n    A <|-- B",
@@ -72,17 +77,28 @@ while [ $# -gt 0 ]; do
         *) break ;;
     esac
 done
+# JAIL_CORRUPT stands for a compile whose output the engine refuses to read: the first byte of math.bc is overwritten after the compile.
+case "$*" in
+    *figure-compile.mjs*)
+        if [ -n "${JAIL_CORRUPT:-}" ]; then
+            "$@" || exit $?
+            for scratch; do :; done
+            printf '\\377' | dd of="$scratch/math.bc" bs=1 seek=@OFFSET@ conv=notrunc 2>/dev/null
+            exit 0
+        fi ;;
+esac
 exec "$@"
-''')
+'''.replace("@OFFSET@", str(BLOB_VERSION_OFFSET)))
     for tool in tools.iterdir():
         tool.chmod(0o755)
 
 
-def environment(with_cache, hook=None):
+def environment(with_cache, hook=None, extra=None):
     env = {"PATH": str(tools) + ":" + os.environ["PATH"], "FLEA_QJS": engine(), "FLEA_UI": str(ui), "JAIL_LOG": str(log),
            "HOME": str(root / "home"), "LC_ALL": "C.UTF-8"}
     if hook:
         env["FLEA_FIGURE_CACHE"] = hook
+    env.update(extra or {})
     if with_cache:
         env["XDG_CACHE_HOME"] = str(cache)
     else:
@@ -116,10 +132,10 @@ def reap():
             return count, False
 
 
-def helper(with_cache=True, flags=(), body=None, hook=None):
+def helper(with_cache=True, flags=(), body=None, hook=None, extra=None):
     # The launcher execs into the stub jail, so the line carrying the helper's own pid is the render jail and every other line is the background build's.
     before = len(jail_lines())
-    child = subprocess.Popen([str(flea), "--figure-helper", *flags], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment(with_cache, hook))
+    child = subprocess.Popen([str(flea), "--figure-helper", *flags], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment(with_cache, hook, extra))
     out, err = child.communicate(requests() if body is None else body, timeout=BOUND_SECONDS)
     started, clean = reap()
     lines = [line.split("\t") for line in jail_lines()[before:]]
@@ -130,7 +146,7 @@ def helper(with_cache=True, flags=(), body=None, hook=None):
 
 
 def keys():
-    return sorted(p.name for p in (cache / "flea/figures").iterdir() if len(p.name) == 32) if (cache / "flea/figures").is_dir() else []
+    return sorted(p.name for p in (cache / "flea/figures").iterdir() if len(p.name) == KEY_HEX_CHARS) if (cache / "flea/figures").is_dir() else []
 
 
 def bytecode_dir_of(argv):
@@ -139,22 +155,35 @@ def bytecode_dir_of(argv):
 
 
 def main():
-    ctypes.CDLL(None, use_errno=True).prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0)
+    prctl = ctypes.CDLL(None, use_errno=True).prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0)
+    if prctl != 0:
+        check(False, f"prctl(PR_SET_CHILD_SUBREAPER) failed with errno {ctypes.get_errno()}, so no background build can be waited for")
+        print(f"figure-bytecode: {checks} check(s), {failures} failed")
+        return
     build_tree()
     source, renders, started, _, _ = helper(with_cache=False)
     check(source.returncode == 0 and source.stderr == "" and len(source.stdout.splitlines()) == len(MATHS) + len(DIAGRAMS), "the source path answers every request")
     check(started == 0 and len(renders) == 1 and bytecode_dir_of(renders[0]) is None, "with no cache dir the helper runs from source and builds nothing")
     check(not any(t == "--bind" for t in renders[0]), "the render jail has no writable bind")
 
+    # A compile whose math.bc the engine refuses to read: the manifest matches it and the source fallback answers the same bytes, so only the helper's load report can tell.
+    refused, renders, started, clean, _ = helper(extra={"JAIL_CORRUPT": "1"})
+    check(refused.stdout == source.stdout and started == 1, "a build over an unreadable blob still starts and the helper answers from source")
+    check(keys() == [] and not clean, "a blob the engine refuses to load leaves no verified directory and fails the build")
+    check(len(list((cache / "flea/figures").glob("*.failed"))) == 1, "and the failure is marked, so it is not retried at once")
+    shutil.rmtree(cache / "flea")
+
     cold, renders, started, clean, built = helper()
     check(cold.stdout == source.stdout and cold.stderr == "", "the first run answers the source path's bytes")
     check(bytecode_dir_of(renders[0]) is None and started == 1 and clean, "the first run starts from source and one background build finishes cleanly")
     key = keys()
     check(len(key) == 1 and (cache / "flea/figures" / key[0] / "manifest").is_file(), "the build installs one verified directory")
-    if not key or not built:
+    if not key:
+        check(False, "no verified directory was installed, so every later check that reads one is counted failed")
         print(f"figure-bytecode: {checks} check(s), {failures} failed")
         return
-    compile_call = built[0]
+    check(len(built) > 0, "the build ran its compile and smoke runs through the jail, and the log saw them")
+    compile_call = built[0] if built else []
     writable = [compile_call[i + 1] for i, t in enumerate(compile_call) if t == "--bind"]
     check(len(writable) == 1 and writable[0].startswith(str(cache / "flea/figures")), "the compile jail's only writable path is inside the cache dir")
     check(all(not any(t == "--bind" for t in call) for call in [renders[0]] + built[1:]), "no render jail, probe included, has a writable bind")
@@ -170,9 +199,9 @@ def main():
     blob = cache / "flea/figures" / key[0] / "math.bc"
     original = blob.read_bytes()
     damages = {
-        "a flipped byte": lambda: blob.write_bytes(original[:100] + bytes([original[100] ^ 1]) + original[101:]),
+        "a flipped byte": lambda: blob.write_bytes(original[:BLOB_FLIP_OFFSET] + bytes([original[BLOB_FLIP_OFFSET] ^ 1]) + original[BLOB_FLIP_OFFSET + 1:]),
         "a truncated file": lambda: blob.write_bytes(original[:-1]),
-        "a foreign manifest": lambda: (blob.parent / "manifest").write_text("flea-figures 1\nkey " + "0" * 32 + "\n"),
+        "a foreign manifest": lambda: (blob.parent / "manifest").write_text("flea-figures 1\nkey " + "0" * KEY_HEX_CHARS + "\n"),
         "a linked blob": lambda: (blob.unlink(), blob.symlink_to(root / "elsewhere.bc")),
     }
     for label, damage in damages.items():

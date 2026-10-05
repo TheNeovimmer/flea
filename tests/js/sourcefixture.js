@@ -26,3 +26,37 @@ function source(path) {
         throw new Error("sourcefixture: cannot read " + path)
     return body
 }
+// Sample input: function ask(kind, source, display, theme) { ... } or onExited: function (...) { ... }.
+function block(source, marker) {
+    var at = source.indexOf(marker)
+    if (at < 0)
+        throw new Error("figureservice: missing " + marker)
+    var begin = source.indexOf("{", at + marker.length)
+    var depth = 1
+    var quote = ""
+    var comment = false
+    var i = begin + 1
+    for (; i < source.length && depth > 0; i++) {
+        var ch = source.charAt(i)
+        if (comment) {
+            if (ch === "\n")
+                comment = false
+        } else if (quote !== "") {
+            if (ch === "\\")
+                i++
+            else if (ch === quote)
+                quote = ""
+        } else if (ch === "/" && source.charAt(i + 1) === "/") {
+            comment = true
+        } else if (ch === '"' || ch === "'") {
+            quote = ch
+        } else if (ch === "{") {
+            depth++
+        } else if (ch === "}") {
+            depth--
+        }
+    }
+    if (begin < 0 || depth !== 0)
+        throw new Error("figureservice: unterminated " + marker)
+    return source.substring(begin + 1, i - 1)
+}

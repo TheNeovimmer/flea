@@ -2,6 +2,8 @@
 use crate::backend::sandbox;
 use crate::figurecache;
 use crate::figurehelper;
+use crate::json;
+use crate::oflags::O_NOFOLLOW;
 use crate::paths;
 use std::fs;
 use std::io::{Read, Write};
@@ -13,8 +15,11 @@ use std::time::{Duration, SystemTime};
 // A build is a second of CPU, so this wall bound only ends a hung one.
 const BUILD_DEADLINE: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_millis(10);
-// A lock older than a build can last was left by a dead builder; a failure is retried after this long.
-const LOCK_STALE: Duration = Duration::from_secs(120);
+// One build is the compile and the two smoke runs, each its own bounded jail run.
+const BUILD_RUNS: u32 = 3;
+const LOCK_MARGIN: Duration = Duration::from_secs(60);
+// A lock older than the longest build was left by a dead builder; a failure is retried after this long.
+const LOCK_STALE: Duration = Duration::from_secs(BUILD_DEADLINE.as_secs() * BUILD_RUNS as u64 + LOCK_MARGIN.as_secs());
 const FAILED_RETRY: Duration = Duration::from_secs(3600);
 // Scratch left by a builder that died is swept once it is older than any live build.
 const SCRATCH_STALE: Duration = Duration::from_secs(600);
@@ -22,6 +27,7 @@ const DIR_MODE: u32 = 0o700;
 const FILE_MODE: u32 = 0o600;
 // The compile script, and the two requests that prove the bytecode renders what the source renders before it is trusted.
 const COMPILE_NAME: &str = "figure-compile.mjs";
+const SMOKE_BUNDLES: [&str; 2] = ["math", "mermaid"];
 const SMOKE_INPUT: &str = "{\"id\":1,\"kind\":\"math\",\"source\":\"x^2\",\"display\":true,\"theme\":{\"bg\":\"#101315\",\"fg\":\"#c0caf5\"}}\n{\"id\":2,\"kind\":\"mermaid\",\"source\":\"flowchart TD\\n    A --> B\",\"display\":true,\"theme\":{\"bg\":\"#101315\",\"fg\":\"#c0caf5\"}}\n";
 
 // Runs one argv with the text on stdin and answers its stdout; the seam a test replaces so no jail is needed.
@@ -154,6 +160,40 @@ fn write_manifest(scratch: &Path, key: &str) -> Option<()> {
     file.write_all(figurecache::manifest_text(key, &blobs).as_bytes()).ok()
 }
 
+// Sample input: "{\"id\":0,\"bundle\":\"math\",\"from\":\"bytecode\"}\n{\"id\":1,\"svg\":\"<svg/>\"}\n" is one load report and one answer.
+fn split_reports(text: &str) -> (Vec<(String, String)>, Vec<&str>) {
+    let mut reports = Vec::new();
+    let mut answers = Vec::new();
+    for line in text.lines() {
+        match (json::field_usize(line, "id"), json::field_str(line, "bundle"), json::field_str(line, "from")) {
+            (Some(0), Some(bundle), Some(from)) => reports.push((bundle, from)),
+            _ => answers.push(line),
+        }
+    }
+    (reports, answers)
+}
+
+// The same two requests through both paths; the bytecode run must say it loaded bytecode, because a load that fails falls back to source and answers the same.
+fn smoke(qjs: &Path, vendor: &Path, scratch: &Path, run: Runner) -> Result<(), String> {
+    let (with, without) = (
+        run(&figurehelper::reporting(figurehelper::figure_argv(qjs, vendor, Some(scratch), &[])), SMOKE_INPUT)?,
+        run(&figurehelper::reporting(figurehelper::figure_argv(qjs, vendor, None, &[])), SMOKE_INPUT)?,
+    );
+    let (with_reports, with_answers) = split_reports(&with);
+    let (without_reports, without_answers) = split_reports(&without);
+    let reported = |from: &str| SMOKE_BUNDLES.iter().map(|bundle| (bundle.to_string(), from.to_string())).collect::<Vec<_>>();
+    if with_reports != reported("bytecode") {
+        return Err(String::from("the helper did not load every bundle from the bytecode"));
+    }
+    if without_reports != reported("source") {
+        return Err(String::from("the source run did not load every bundle from source"));
+    }
+    if with_answers != without_answers || with_answers.len() != SMOKE_BUNDLES.len() || !with.contains("\"svg\"") {
+        return Err(String::from("the bytecode answered differently from the source"));
+    }
+    Ok(())
+}
+
 // One build: compile in the jail, check the bytecode renders what the source renders, then swap the directory in whole.
 fn compile_into(root: &Path, key: &str, qjs: &Path, ui: &Path, run: Runner) -> Result<(), String> {
     let vendor = ui.join("vendor");
@@ -163,12 +203,7 @@ fn compile_into(root: &Path, key: &str, qjs: &Path, ui: &Path, run: Runner) -> R
     let built = (|| {
         run(&compile_argv(qjs, &vendor, &scratch), "")?;
         write_manifest(&scratch, key).ok_or("the compile left no complete bytecode")?;
-        // The same two requests through both paths, so a bytecode that loads wrongly never becomes the cache.
-        let with = run(&figurehelper::figure_argv(qjs, &vendor, Some(&scratch), &[]), SMOKE_INPUT)?;
-        let without = run(&figurehelper::figure_argv(qjs, &vendor, None, &[]), SMOKE_INPUT)?;
-        if with != without || with.lines().count() != 2 || !with.contains("\"svg\"") {
-            return Err(String::from("the bytecode answered differently from the source"));
-        }
+        smoke(qjs, &vendor, &scratch, run)?;
         Ok(())
     })();
     if let Err(message) = built {
@@ -202,9 +237,7 @@ pub fn build(root: &Path, qjs: &Path, ui: &Path, run: Runner) -> Result<(), Stri
     }
     let lock = lock_path(root, &key);
     remove_stale_lock(&lock);
-    if create_new(&lock).is_err() {
-        return Ok(());
-    }
+    let Some(token) = take_lock(&lock) else { return Ok(()) };
     let result = compile_into(root, &key, qjs, ui, run);
     match &result {
         Ok(()) => sweep(root, &key),
@@ -214,8 +247,28 @@ pub fn build(root: &Path, qjs: &Path, ui: &Path, run: Runner) -> Result<(), Stri
             drop(create_new(&failed));
         }
     }
-    remove_ours(&lock);
+    release_lock(&lock, &token);
     result
+}
+
+// Creates the lock exclusively and writes this builder's token into it, so the final removal can tell its own lock from a successor's.
+fn take_lock(lock: &Path) -> Option<String> {
+    let token = format!("{} {}\n", std::process::id(), SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    let mut file = create_new(lock).ok()?;
+    if file.write_all(token.as_bytes()).is_err() {
+        remove_ours(lock);
+        return None;
+    }
+    Some(token)
+}
+
+// Removes the lock only when it still holds this builder's token; a builder that took over a stale lock keeps its own. The read and the unlink can still race a takeover, which needs a lock older than a whole build.
+fn release_lock(lock: &Path, token: &str) {
+    let mut text = String::new();
+    let read = fs::OpenOptions::new().read(true).custom_flags(O_NOFOLLOW).open(lock).and_then(|mut file| file.read_to_string(&mut text));
+    if read.is_ok() && text == token {
+        remove_ours(lock);
+    }
 }
 
 fn remove_stale_lock(lock: &Path) {

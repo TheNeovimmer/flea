@@ -24,8 +24,12 @@ fn rig(name: &str) -> Rig {
     Rig { dir, ui, qjs, root }
 }
 
-// The two smoke answers a healthy engine gives.
-const SMOKE_ANSWER: &str = "{\"id\":1,\"svg\":\"<svg/>\"}\n{\"id\":2,\"svg\":\"<svg/>\"}\n";
+// What a healthy helper prints for the two smoke requests with `--report`: each bundle's load line, then its answer.
+fn smoke_answer(math_from: &str, mermaid_from: &str) -> String {
+    format!(
+        "{{\"id\":0,\"bundle\":\"math\",\"from\":\"{math_from}\"}}\n{{\"id\":1,\"svg\":\"<svg/>\"}}\n{{\"id\":0,\"bundle\":\"mermaid\",\"from\":\"{mermaid_from}\"}}\n{{\"id\":2,\"svg\":\"<svg/>\"}}\n"
+    )
+}
 
 // A jail stand-in: the compile call writes the blobs into its scratch dir, a smoke call answers what `smoke` says.
 fn fake<'a>(calls: &'a RefCell<Vec<Vec<String>>>, blobs: &'a [&'a str], smoke: &'a dyn Fn(bool) -> Result<String, String>) -> impl Fn(&[String], &str) -> Result<String, String> + 'a {
@@ -42,8 +46,9 @@ fn fake<'a>(calls: &'a RefCell<Vec<Vec<String>>>, blobs: &'a [&'a str], smoke: &
     }
 }
 
-fn healthy(_: bool) -> Result<String, String> {
-    Ok(SMOKE_ANSWER.to_string())
+fn healthy(bytecode: bool) -> Result<String, String> {
+    let from = if bytecode { "bytecode" } else { "source" };
+    Ok(smoke_answer(from, from))
 }
 
 #[test]
@@ -106,9 +111,12 @@ fn a_corrupt_or_foreign_directory_in_the_way_is_replaced_and_never_followed() {
 fn a_failed_build_leaves_nothing_live_and_is_not_retried_at_once() {
     for (label, blobs, smoke) in [
         ("a compile that writes one blob", &figurecache::BLOBS[..1], &healthy as &dyn Fn(bool) -> Result<String, String>),
-        ("bytecode that answers differently", &figurecache::BLOBS[..], &|bytecode| Ok(if bytecode { "{\"id\":1,\"svg\":\"<svg>x</svg>\"}\n{\"id\":2,\"svg\":\"<svg/>\"}\n".to_string() } else { SMOKE_ANSWER.to_string() })),
-        ("bytecode that answers nothing", &figurecache::BLOBS[..], &|bytecode| Ok(if bytecode { String::new() } else { SMOKE_ANSWER.to_string() })),
+        ("bytecode that answers differently", &figurecache::BLOBS[..], &|bytecode| Ok(if bytecode { smoke_answer("bytecode", "bytecode").replacen("<svg/>", "<svg>x</svg>", 1) } else { smoke_answer("source", "source") })),
+        ("bytecode that answers nothing", &figurecache::BLOBS[..], &|bytecode| Ok(if bytecode { String::new() } else { smoke_answer("source", "source") })),
         ("a jail that fails", &figurecache::BLOBS[..], &|_| Err("jail refused".to_string())),
+        ("bytecode that never loaded and answered from source", &figurecache::BLOBS[..], &|_| Ok(smoke_answer("source", "source"))),
+        ("one bundle that fell back to source", &figurecache::BLOBS[..], &|bytecode| Ok(if bytecode { smoke_answer("bytecode", "source") } else { smoke_answer("source", "source") })),
+        ("a source run that claims bytecode", &figurecache::BLOBS[..], &|_| Ok(smoke_answer("bytecode", "bytecode"))),
     ] {
         let rig = rig("figure-build-fail");
         let key = figurecache::key(&rig.qjs, &rig.ui).expect("key");
@@ -155,6 +163,33 @@ fn a_live_lock_defers_a_build_and_a_stale_one_or_an_old_failure_does_not() {
 }
 
 #[test]
+fn a_lock_outlives_the_longest_build() {
+    assert!(LOCK_STALE > BUILD_DEADLINE * BUILD_RUNS, "a build is three bounded jail runs: {LOCK_STALE:?} against {BUILD_DEADLINE:?}");
+}
+
+#[test]
+fn the_final_unlock_removes_only_the_lock_that_is_still_this_builders() {
+    let first = rig("figure-build-owner");
+    let key = figurecache::key(&first.qjs, &first.ui).expect("key");
+    let lock = lock_path(&first.root, &key);
+    // A second builder takes the lock over while the first is still compiling.
+    let calls = RefCell::new(Vec::new());
+    let inner = fake(&calls, &figurecache::BLOBS, &healthy);
+    let takeover = |argv: &[String], input: &str| {
+        if argv.iter().any(|a| a.ends_with(COMPILE_NAME)) {
+            fs::remove_file(&lock).expect("the first builder's lock");
+            fs::write(&lock, "rival builder").expect("the rival's lock");
+        }
+        inner(argv, input)
+    };
+    build(&first.root, &first.qjs, &first.ui, &takeover).expect("a build");
+    assert_eq!(fs::read_to_string(&lock).expect("the rival's lock is still there"), "rival builder");
+    let alone = rig("figure-build-owner-alone");
+    build(&alone.root, &alone.qjs, &alone.ui, &fake(&RefCell::new(Vec::new()), &figurecache::BLOBS, &healthy)).expect("a build");
+    assert!(!lock_path(&alone.root, &key).exists(), "a builder's own lock is removed");
+}
+
+#[test]
 fn only_stale_scratch_and_other_keys_are_swept() {
     let rig = rig("figure-build-sweep");
     let current = figurecache::digest(b"current");
@@ -197,7 +232,53 @@ fn classify_reads_only_our_names() {
     }
 }
 
-// The jail itself, where bwrap can make a namespace: the scratch directory takes a write and nothing else on this box does.
+// The escape probes: each writes one place a jail must not let it, every one inside the test's own root, so nothing is ever written outside it.
+struct Probe {
+    dir: TestDir,
+    scratch: PathBuf,
+    sibling: PathBuf,
+    vendor: PathBuf,
+    outside: PathBuf,
+}
+
+fn probe(name: &str) -> Probe {
+    let dir = TestDir::new(name);
+    let (scratch, sibling, vendor, outside) = (dir.join("scratch"), dir.join("sibling"), dir.join("vendor"), dir.join("outside"));
+    for path in [&scratch, &sibling, &vendor, &outside] {
+        fs::create_dir(path).expect("dir");
+    }
+    Probe { dir, scratch, sibling, vendor, outside }
+}
+
+impl Probe {
+    // The command: the scratch takes a write; a sibling, the read-only vendor tree, an unbound directory and the root itself must not.
+    fn inner(&self) -> Vec<String> {
+        let script = "echo ok > \"$1/inside\"; echo no > \"$2/sibling\"; echo no > \"$3/vendor\"; echo no > \"$4/outside\"; echo no > \"$5/root\"; exit 0";
+        let paths = [&self.scratch, &self.sibling, &self.vendor, &self.outside, &self.dir.path().to_path_buf()];
+        ["/bin/sh", "-c", script, "sh"].iter().map(|s| s.to_string()).chain(paths.iter().map(|p| p.to_string_lossy().into_owned())).collect()
+    }
+
+    fn escapes(&self) -> Vec<&'static str> {
+        let wrote = [
+            ("a sibling directory", self.sibling.join("sibling")),
+            ("the read-only vendor bind", self.vendor.join("vendor")),
+            ("an unbound directory", self.outside.join("outside")),
+            ("the root itself", self.dir.join("root")),
+        ];
+        wrote.into_iter().filter(|(_, path)| path.exists()).map(|(label, _)| label).collect()
+    }
+}
+
+#[test]
+fn every_escape_probe_fires_when_nothing_jails_it() {
+    let rig = probe("figure-jail-teeth");
+    let status = Command::new(&rig.inner()[0]).args(&rig.inner()[1..]).status().expect("sh runs");
+    assert!(status.success());
+    assert!(rig.scratch.join("inside").is_file(), "the scratch write lands");
+    assert_eq!(rig.escapes(), ["a sibling directory", "the read-only vendor bind", "an unbound directory", "the root itself"], "each probe is red as the runner that runs it, with no jail");
+}
+
+// The jail itself, where bwrap can make a namespace: the scratch directory takes a write and nothing else does.
 #[test]
 fn the_real_compile_jail_writes_only_its_scratch_directory() {
     // Only a box whose layout the jail supports can run it: Arch's, which the CI image has and a Debian host does not.
@@ -207,20 +288,12 @@ fn the_real_compile_jail_writes_only_its_scratch_directory() {
         eprintln!("SKIP the compile jail cannot run here, so it was not run for real");
         return;
     }
-    let dir = TestDir::new("figure-jail");
-    let (scratch, sibling, vendor) = (dir.join("scratch"), dir.join("sibling"), dir.join("vendor"));
-    for path in [&scratch, &sibling, &vendor] {
-        fs::create_dir(path).expect("dir");
-    }
-    let script = "echo ok > \"$1/inside\"; echo no > \"$2/sibling\"; echo no > \"$3/vendor\"; echo no > /usr/flea-escape; echo no > /etc/flea-escape; exit 0";
-    let inner: Vec<String> = ["/bin/sh", "-c", script, "sh"].iter().map(|s| s.to_string()).chain([&scratch, &sibling, &vendor].iter().map(|p| p.to_string_lossy().into_owned())).collect();
-    let argv = sandbox::wrap_compile(&inner, &[vendor.as_path()], &scratch);
+    let rig = probe("figure-jail");
+    let argv = sandbox::wrap_compile(&rig.inner(), &[rig.vendor.as_path()], &rig.scratch);
     let status = Command::new(&argv[0]).args(&argv[1..]).stdout(Stdio::null()).stderr(Stdio::null()).status().expect("jail starts");
     assert!(status.success(), "the jail ran the probe");
-    assert!(scratch.join("inside").is_file(), "the scratch directory takes the write");
-    assert!(!sibling.join("sibling").exists(), "a sibling directory does not");
-    assert!(!vendor.join("vendor").exists(), "the read-only vendor bind does not");
-    assert!(!Path::new("/usr/flea-escape").exists() && !Path::new("/etc/flea-escape").exists(), "the system trees do not");
+    assert!(rig.scratch.join("inside").is_file(), "the scratch directory takes the write");
+    assert_eq!(rig.escapes(), Vec::<&str>::new(), "nothing else does");
 }
 
 #[test]

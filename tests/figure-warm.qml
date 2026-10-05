@@ -84,11 +84,14 @@ ShellRoot {
         size: 1
     }
 
-    // A document that parsed with the service still stopped: one turn later nothing has started it.
+    // The check reads the cause: no warm query or ask was made and neither a store nor a helper was spawned.
+    // contentReady is the warm inputs' last change and every binding it feeds runs inside that turn, so one deferred turn covers the request side; the spawn itself is asynchronous.
     function settledStopped(label) {
         Qt.callLater(function () {
-            shell.check(!Flea.FigureService.helperRunning && !Flea.FigureService.starting && Flea.FigureService.helperExits === shell.exitsMark,
-                label + " leaves the helper stopped")
+            var service = Flea.FigureService
+            shell.check(service.seq === 0 && service.warmQuery === 0 && !service.persistent.active && service.persistent.exits === 0
+                && !service.helperRunning && !service.starting && service.helperExits === shell.exitsMark,
+                label + " sent no warm query and spawned neither a store nor a helper")
             shell.next()
         })
     }
@@ -121,8 +124,7 @@ ShellRoot {
         }
     }
 
-    // The warm helper, answered once, ends at the idle exit like any other; the next ask starts it again.
-    // The exit count and the running flag change in separate turns, so both signals come here.
+    // The exit count and the running flag change in separate turns, so both signals come here for the warm helper's idle exit.
     function idleEnded() {
         var service = Flea.FigureService
         if (shell.step === 5 && service.helperExits === shell.exitsMark + 1 && !service.helperRunning) {
