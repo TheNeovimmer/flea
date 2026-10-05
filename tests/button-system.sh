@@ -26,6 +26,17 @@ grep -q 'component Answer: Flea.DialogButton' ui/PickerChrome.qml || fail 'ui/Pi
 grep -q 'component Mark: Flea.ChromeButton' ui/PickerChrome.qml || fail 'ui/PickerChrome.qml: the marks are no longer chrome marks'
 # The QML handback test drives the ipc's own body: a focus scope forced alone returns to its last child, so the button is released first.
 grep -q 'view\.emptyItem\.focus = false; view\.forceActiveFocus()' ui/Ipc.qml || fail 'ui/Ipc.qml: trashFocusListing no longer releases the strip button before forcing the view'
+# A fresh open() never hands the keyboard to the strip button: open()'s own body releases it before forcing the scope.
+open_body=$(sed -n '/function open(action)/,/^    }/p' ui/TrashView.qml)
+open_seq=$(grep -o -e 'emptyAction\.focus = false' -e 'forceActiveFocus()' <<< "$open_body")
+open_rel=0; open_forces=0; open_ok=1
+while IFS= read -r open_tok; do
+    case "$open_tok" in
+        *focus*) open_rel=$((open_rel + 1)) ;;
+        *force*) open_forces=$((open_forces + 1)); [ "$open_rel" -gt 0 ] || open_ok=0; open_rel=$((open_rel - 1)); [ "$open_rel" -ge 0 ] || { open_ok=0; open_rel=0; } ;;
+    esac
+done <<< "$open_seq"
+[ "$open_forces" -gt 0 ] && [ "$open_ok" -eq 1 ] || fail 'ui/TrashView.qml: open() forces the scope without releasing emptyAction first'
 # Deferred by name (AGENTS.md): PickerChrome.Framed, now the filter chips alone, waits for Picker040 (v0.3.10), and NetworkForm's TLS box has no board.
 grep -q 'component Framed: Item' ui/PickerChrome.qml || fail 'ui/PickerChrome.qml: Framed moved, update this table'
 # Completeness: a ui/ file declaring the Button accessible role and drawing a border.width (ChromeButton's is its focus ring) is in this list or it is a new hand-built button.
