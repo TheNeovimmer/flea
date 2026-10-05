@@ -7,8 +7,7 @@ cd "$(dirname "$0")/.." || exit 1
 kinds="run heading table list quote fence remote image images"
 # The parts the probe can name (foreignParts in tests/markdown-blockcost.qml); any other name in a report is refused.
 known_parts='Repeater|Column|Row|Rectangle|Image|MarkdownFigure|TextMetrics|Glyph'
-# Object counts of one block, measured on the shipped delegate in this fixture: the remote box's dashes follow the pane width.
-# Every kind counts the delegate's nine inert Components, one more than before the badge row got its own; the badge row follows its two pictures.
+# Object counts of one block on the shipped delegate, its nine inert Components included; the remote box's dashes follow the pane width and a badge row its pictures.
 limit_for() {
     case $1 in
         run|heading|fence) echo 13 ;;
