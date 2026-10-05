@@ -17,6 +17,8 @@ Item {
     property int readBytes: 0
     property int workerAnswers: 0
     property string preparedPath: ""
+    // True once the cursor has rested on a listed row, false from its next move; Quick Look's own build waits on it.
+    property bool rested: false
     // A cursor move bumps seq, so a read or a parse that answers after it is dropped.
     property int seq: 0
     // The one request waiting on the worker: its seq, path, text and the inputs the parse took.
@@ -44,8 +46,11 @@ Item {
     }
 
     function moved() {
+        root.rested = false
         root.seq++
         root.releaseSizer()
+        // The move back waits on the new rest below, never on the entry from before it.
+        root.preparedPath = ""
         if (root.pictures.length > 0)
             root.pictures = []
         root.picturesSettled = true
@@ -126,6 +131,7 @@ Item {
         var pane = root.pane
         if (!root.resting || !pane || pane.listInFlight)
             return
+        root.rested = true
         var row = pane.rowFor(pane.cursorIndex)
         if (!Prepared.readsInline(row, pane.storageClass, pane.storageKnown))
             return

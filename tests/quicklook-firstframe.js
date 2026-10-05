@@ -61,10 +61,25 @@ function pictureState(root, ready) {
 
 // The compiled units the idle warm holds: an open before them would compile inside the key, which a user's first Space never does.
 function unitsReady(root, ready) {
-    var p = root.pv()
-    // A preview with no swap unit is waited for on the Markdown one alone, so the compile gate in the script is what fails it.
-    var units = p ? (p.swapUnit === undefined ? [p.markdownUnit] : [p.markdownUnit, p.swapUnit]) : []
-    return units.length > 0 && units.every(function (u) { return u !== null && u !== undefined && u.status === ready })
+    var w = root.warm
+    var units = w ? [w.previewUnit, w.markdownUnit, w.swapUnit] : []
+    return units.every(function (u) { return u !== null && u !== undefined && u.status === ready })
+}
+
+// After a rest with Quick Look never opened no card is built, while the entry and the units are: red while a rest still builds the closed card.
+function proveGone(root) {
+    var step = root.steps[root.step]
+    if (root.pv() !== null) root.fail("a rest on " + step.name + " built Quick Look without Space")
+    if (root.prepare.preparedPath !== root.target()) root.fail("a rest on " + step.name + " prepared " + root.prepare.preparedPath)
+    if (!root.unitsReady()) root.fail("a rest on " + step.name + " holds no compiled units")
+    else root.log("NOBUILD " + step.name + " entry and units ready, no card")
+}
+
+// A move off the rested file drops its prepared entry at once, so a move back waits on a new rest.
+function proveMoved(root) {
+    var step = root.steps[root.step]
+    if (root.prepare.preparedPath !== "") root.fail("a move off " + step.name + " kept the prepared entry " + root.prepare.preparedPath)
+    else root.log("NOBUILD a move off " + step.name + " dropped the prepared entry")
 }
 
 // The first block of the document named by the step: a block left over from the previous file never counts.
@@ -101,7 +116,8 @@ function judge(root) {
     var d = doc(root)
     var blocked = d ? d.blockedReads - root.blockedBefore : -1
     root.log("STEP " + n + " " + step.name + " " + step.expect + " frames=" + root.contentFrame + " empty=" + root.emptyFrames + " blocked=" + blocked
-        + " pictures=" + root.syncPictures.ready + "/" + root.syncPictures.total)
+        + " pictures=" + root.syncPictures.ready + "/" + root.syncPictures.total
+        + " keyMs=" + (root.returnedAt - root.keyAt) + " toFrameMs=" + (root.contentAt - root.keyAt))
     if (!d || (step.expect !== "deep" && d.sourceChars !== 0)) root.fail("step " + n + " laid out " + (d ? d.sourceChars : -1) + " characters of Source text while Rendered shows")
     if (step.expect === "inline") {
         if (root.emptyFrames !== 0) root.fail("step " + n + " drew the card " + root.emptyFrames + " time(s) without its first block")

@@ -34,6 +34,10 @@ function run(check) {
     check("a folder never does", Prepared.readsInline(row({ d: true }), "", true), false)
     check("another kind of file never does", Prepared.readsInline(row({ n: "a.txt" }), "", true), false)
     check("no row never does", Prepared.readsInline(null, "", true), false)
+    check("a Markdown file by name is the warm's trigger, whatever its size or class", Prepared.isMarkdownRow(row({ s: Prepared.MAX_BYTES + 1 })), true)
+    check("a folder named .md is not", Prepared.isMarkdownRow(row({ d: true })), false)
+    check("another kind of file is not", Prepared.isMarkdownRow(row({ n: "a.txt" })), false)
+    check("no row is not", Prepared.isMarkdownRow(null) || Prepared.isMarkdownRow(undefined), false)
     // kernel cifs, nfs and every listed FUSE share (sshfs, rclone, s3fs) classify as network; a phone is its own class.
     var classes = ["network", "phone", "usb"]
     for (var i = 0; i < classes.length; i++)

@@ -16,7 +16,7 @@ function forwardPane(history) {
     return p
 }
 
-// The window's side-button handler, taken from ui/WindowBody.qml, with every overlay it reads in its shut state.
+// The window's side-button handler, taken from ui/WindowBody.qml, with every overlay it reads in its shut state; Quick Look is read through view.quickLookActive.
 function handlerFor(pane) {
     var source = Source.slice(Source.source("ui/WindowBody.qml"), "onTapped: function (eventPoint, button) {",
                               "\n    }\n\n    Component.onCompleted:").replace(/^onTapped:\s*/, "").trim()
@@ -25,7 +25,7 @@ function handlerFor(pane) {
         shareBrowser: { active: false, owner: null }, preview: { active: false } }
     var tap = new Function("view", "settingsPanel", "chrome", "convertDialog", "permissionsDialog", "keymapSheet",
         "networkDialog", "shareBrowser", "preview", "Nav", "MouseNav", "Qt", "return (" + source + ")")(
-        { currentPane: pane }, overlays.settingsPanel, overlays.chrome, overlays.convertDialog, overlays.permissionsDialog,
+        { currentPane: pane, get quickLookActive() { return overlays.preview.active } }, overlays.settingsPanel, overlays.chrome, overlays.convertDialog, overlays.permissionsDialog,
         overlays.keymapSheet, overlays.networkDialog, overlays.shareBrowser, overlays.preview, Nav, MouseNav, Qt)
     return { tap: tap, overlays: overlays }
 }

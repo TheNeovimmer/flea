@@ -160,6 +160,13 @@ FocusScope {
     // So a test can wait for the rail's async FileViews instead of sleeping and guessing.
     readonly property int railCount: root.sidebar ? root.sidebar.entries.length : 0
     property var preview: null
+    // WindowBody's Quick Look loader; quickLook() builds the overlay on the first open and answers it.
+    property var previewLoader: null
+    function quickLook() {
+        if (root.previewLoader)
+            root.previewLoader.active = true
+        return root.preview
+    }
     property var statusBar: null
     // shell.qml's ui/ShareBrowser.qml overlay, wired the same way as preview above.
     property var shareBrowser: null
