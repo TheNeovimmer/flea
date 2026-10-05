@@ -16,7 +16,7 @@ function runText(blocks) {
         var own = (block.text === undefined ? "" : block.text) + (block.items === undefined ? "" : block.items.join(""))
         var held = block.parts === undefined ? [] : block.parts
         // A quote's parts are blocks, a list's are one array of blocks per item or null.
-        var inner = held.map(function (part) { return Array.isArray(part) ? runText(part) : runText([part]) }).join("")
+        var inner = held.map(function (part) { return part === null ? "" : runText(Array.isArray(part) ? part : [part]) }).join("")
         return own + inner
     }).join("")
 }
@@ -68,6 +68,8 @@ function failures(dir) {
     var shapes = [{ name: "top", wrap: function (input) { return input } }].concat(NESTINGS.map(function (form) {
         return { name: form.name, wrap: function (input) { return nested(input, form) } }
     }))
+    // A plain item before one that holds a quote gives the list a null part beside a held one.
+    shapes.push({ name: "mixed list", wrap: function (input) { return "- plain\n" + nested(nested(input, NESTINGS[1]), NESTINGS[0]) } })
     var plain = emittedHrefs(blocksOf('<a href="https://a.example/">LTK</a>', dir))
     if (plain.length !== 1 || plain[0] !== "https://a.example/")
         out.push("the anchor check does not see a plain raw HTML link")
