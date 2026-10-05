@@ -1,5 +1,6 @@
 .import "../../ui/js/MdLeaf.js" as Leaf
 .import "../../ui/js/MarkdownTableFit.js" as Fit
+.import "../../ui/js/MdEscape.js" as Escape
 
 // The table's column data the parser carries, and how the table shares its block's width between columns.
 function run(assert) {
@@ -19,6 +20,11 @@ function run(assert) {
     check("a break starts a line, so the widest line sets the width", table(["h"], [["First line<br>second line<br/>third"], ["a plain cell!"]]).measure, ["a plain cell!"])
     check("an emoji counts two columns on its own", Leaf.cellExtent("🚀").text, 2)
     check("a joined sequence counts two in all on its own", Leaf.cellExtent("👩‍💻").text, 2)
+    // A chip pad is a spacer span, so a padded chip counts the columns of its text and keeps its words' length.
+    var chipPad = Escape.chipPad()
+    check("a chip's pad span holds no column", Leaf.cellExtent("a " + chipPad + "bc" + chipPad).text, 4)
+    check("a chip's pad span adds no word length", Leaf.cellExtent("<code>" + chipPad + "bc" + chipPad + "</code>").word, 2)
+    check("the pad leaves a column's weight as its plain text", table(["h"], [["x " + chipPad + "bc" + chipPad]]).weights, [4])
     check("an emoji takes two columns and a joined sequence two in all", [table(["h"], [["🚀"], ["abc"]]).weights[0], table(["h"], [["👩‍💻"], ["a"]]).weights[0]], [3, 2])
     check("the longest unbreakable run is the column's word", table(["h"], [["see /a/very/long/path ok"], ["short"]]).words, [17])
     check("a chunk keeps the table's shared column data", Leaf.chunkTable(table(["h"], Array.apply(null, Array(30)).map(function () { return ["ab"] })))
