@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import "." as Flea
 import "js/Icons.js" as Icons
 import "js/Markdown.js" as Markdown
@@ -15,47 +16,36 @@ Item {
     // The delegate sets the width; the dashes and the sentence follow it.
     height: remoteRow.implicitHeight + 2 * Theme.spacing.gap
 
-    Row {
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        spacing: root.dashPx
-        Repeater {
-            model: Math.max(1, Math.floor((root.width + root.dashPx) / root.dashPitch))
-            delegate: Rectangle { width: root.dashPx; height: Theme.spacing.hairline; color: Theme.color.muted }
-        }
+    // The dashes a side of this length holds, laid from its corner: the last one ends at the returned offset.
+    // Sample input: 20 answers 15, three dashes at 0, 6 and 12 ending at 15.
+    function dashEnd(length) {
+        return (Math.max(1, Math.floor((length + root.dashPx) / root.dashPitch)) - 1) * root.dashPitch + root.dashPx
     }
 
-    Row {
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        spacing: root.dashPx
-        Repeater {
-            model: Math.max(1, Math.floor((root.width + root.dashPx) / root.dashPitch))
-            delegate: Rectangle { width: root.dashPx; height: Theme.spacing.hairline; color: Theme.color.muted }
-        }
+    // The four sides as SVG subpaths, each dashing from its own corner and running half a stroke inside the box.
+    // Sample input: (20, 10) with a 1 px hairline answers "M0 0.5 L15 0.5 M0 9.5 L15 9.5 M0.5 0 L0.5 9 M19.5 0 L19.5 9".
+    function borderPath(w, h) {
+        var half = Theme.spacing.hairline / 2
+        var across = root.dashEnd(w)
+        var down = root.dashEnd(h)
+        return "M0 " + half + " L" + across + " " + half + " M0 " + (h - half) + " L" + across + " " + (h - half)
+            + " M" + half + " 0 L" + half + " " + down + " M" + (w - half) + " 0 L" + (w - half) + " " + down
     }
 
-    Column {
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        spacing: root.dashPx
-        Repeater {
-            model: Math.max(1, Math.floor((root.height + root.dashPx) / root.dashPitch))
-            delegate: Rectangle { width: Theme.spacing.hairline; height: root.dashPx; color: Theme.color.muted }
-        }
-    }
+    // One Shape draws all four sides, so a wide card builds a handful of objects instead of a Rectangle per dash.
+    Shape {
+        id: dashes
+        anchors.fill: parent
 
-    Column {
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.right: parent.right
-        spacing: root.dashPx
-        Repeater {
-            model: Math.max(1, Math.floor((root.height + root.dashPx) / root.dashPitch))
-            delegate: Rectangle { width: Theme.spacing.hairline; height: root.dashPx; color: Theme.color.muted }
+        ShapePath {
+            strokeColor: Theme.color.muted
+            strokeWidth: Theme.spacing.hairline
+            fillColor: "transparent"
+            strokeStyle: ShapePath.DashLine
+            // A dash is dashPx long in units of the stroke width, which the hairline sets.
+            dashPattern: [root.dashPx / Theme.spacing.hairline, root.dashPx / Theme.spacing.hairline]
+            capStyle: ShapePath.FlatCap
+            PathSvg { path: root.borderPath(root.width, root.height) }
         }
     }
 
