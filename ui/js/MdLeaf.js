@@ -150,13 +150,16 @@ var LIST_CHUNK_ITEMS = 32
 var IMAGE_COLUMNS = 8
 // One image, as the cell's Markdown or a raw tag; the private-use character stands for it while the text is counted.
 var CELL_IMAGE = /!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>/gi
+// The chip pad span MdEscape.CHIP_PAD_HTML writes; a pad holds no column, and the worker bundle shares only functions between files.
+var CHIP_PAD_CELL = /<span style="font-size:chippad">&nbsp;<\/span>/g
 var CELL_GLYPH = /[\ud800-\udbff][\udc00-\udfff]|[\s\S]/g
 var WIDE_GLYPH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/
 
 // Sample input: 'a<br>**bb** &#33; ![i](x.png)' draws lines "a" and "bb ! \ue000": 5 columns of text, 13 with the image, a longest word of 8.
 // A wide glyph counts 2, a joiner and a variation selector 0, a break starts a line, and an image counts only in image.
+// A chip's pad span holds no column, so '<span style="font-size:chippad">&nbsp;</span>x' counts 1.
 function cellExtent(cell) {
-    var plain = String(cell).replace(/<br\s*\/?>/gi, "\n").replace(CELL_IMAGE, "\ue000").replace(/<[^>"]*("[^"]*"[^>"]*)*>/g, "").replace(/[*_~`]/g, "")
+    var plain = String(cell).replace(CHIP_PAD_CELL, "").replace(/<br\s*\/?>/gi, "\n").replace(CELL_IMAGE, "\ue000").replace(/<[^>"]*("[^"]*"[^>"]*)*>/g, "").replace(/[*_~`]/g, "")
     plain = plain.replace(/&#(\d+);/g, function (m, n) { return String.fromCharCode(parseInt(n, 10)) }).replace(/&(amp|lt|gt|quot);/g, "?")
     var out = { text: 0, image: 0, word: 0 }
     for (var l = 0, lines = plain.split("\n"); l < lines.length; l++) {
