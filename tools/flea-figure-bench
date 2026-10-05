@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+# Times a fresh figure helper from spawn to its first answer, n runs per case, as median and range: flea-figure-bench [--runs N] [--cases a,b] [--warm] -- CMD...
+# With --warm the helper starts with --warm=KIND, and the clock starts when it announces it is ready, so the figure is asked of a warm helper.
+import json
+import statistics
+import subprocess
+import sys
+import time
+
+THEME = {"bg": "#101315", "fg": "#c0caf5", "accent": "#7aa2f7", "font": "monospace", "bodyPx": 14}
+# One figure per kind and diagram family the corpus leans on.
+CASES = {
+    "math": ("math", "\\frac{a}{b}+\\sum_{n=1}^{\\infty}\\frac{1}{n^2}"),
+    "flowchart": ("mermaid", "flowchart TD\n    A[Start] --> B{Ok?}\n    B -->|yes| C[Done]\n    B -->|no| D[Retry]\n    D --> A"),
+    "sequence": ("mermaid", "sequenceDiagram\n    A->>B: hello\n    B-->>A: hi\n    A->>B: bye"),
+}
+# A helper that never answers fails the run instead of hanging the bench.
+ANSWER_BOUND_SECONDS = 30
+MS = 1000.0
+
+
+def one(command, kind, source, warm):
+    request = json.dumps({"id": 1, "kind": kind, "source": source, "display": True, "theme": THEME}) + "\n"
+    start = time.perf_counter()
+    proc = subprocess.Popen(command + (["--warm=" + kind] if warm else []), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if warm:
+        ready = json.loads(proc.stdout.readline() or "{}")
+        if ready.get("warm") != [kind]:
+            sys.exit("the helper did not announce a warm %s: %r" % (kind, ready))
+        start = time.perf_counter()
+    proc.stdin.write(request.encode())
+    proc.stdin.flush()
+    line = proc.stdout.readline()
+    elapsed = (time.perf_counter() - start) * MS
+    proc.stdin.close()
+    try:
+        proc.wait(timeout=ANSWER_BOUND_SECONDS)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    answer = json.loads(line) if line else {}
+    if not str(answer.get("svg", "")).startswith("<svg"):
+        sys.exit("no svg answer for %s: %r" % (kind, line[:200]))
+    return elapsed
+
+
+def main():
+    args = sys.argv[1:]
+    runs = 10
+    cases = list(CASES)
+    warm = False
+    while args and args[0] != "--":
+        flag = args.pop(0)
+        if flag == "--runs":
+            runs = int(args.pop(0))
+        elif flag == "--cases":
+            cases = args.pop(0).split(",")
+        elif flag == "--warm":
+            warm = True
+        else:
+            sys.exit("unknown flag " + flag)
+    command = args[1:]
+    if not command:
+        sys.exit("usage: flea-figure-bench [--runs N] [--cases a,b] -- CMD...")
+    for name in cases:
+        kind, source = CASES[name]
+        times = [one(command, kind, source, warm) for _ in range(runs)]
+        print("FIGBENCH%s %-9s n=%d median=%.0f min=%.0f max=%.0f ms" % (" warm" if warm else "", name, runs, statistics.median(times), min(times), max(times)))
+
+
+if __name__ == "__main__":
+    main()

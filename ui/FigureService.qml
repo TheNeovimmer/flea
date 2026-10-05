@@ -42,6 +42,12 @@ Item {
     readonly property bool helperRunning: helper.running
     // The helper's pid, so the suite reads its peak RSS while it runs.
     readonly property var helperPid: helper.processId
+    // The figure kinds the next helper start loads before its first request; warm() sets it and the start reads it once.
+    property var warmKinds: []
+    // The suite reads the persistent cache's counters and process through this.
+    readonly property var persistent: disk
+    // The warm query waiting on the persistent cache, if any.
+    property int warmQuery: 0
     // The deadline timer stops between tickets so an idle session wakes for nothing.
     readonly property bool deadlineRunning: deadlineTimer.running
     // The suite observes actual exit and deadline events without timing their answers.
@@ -92,10 +98,17 @@ Item {
             delete root.answerCache[root.answerOrder.shift()];
     }
 
+    // Figures drawn in any earlier session answer from here before the helper is ever started.
+    FigureStore {
+        id: disk
+        onAnswered: function (id, svg) { root.storeAnswered(id, svg) }
+        onKnown: function (id, all) { root.warmAnswered(id, all) }
+    }
+
     Process {
         id: helper
         // FLEA_BIN is the dev seam, see AGENTS.md "Where the backend binary comes from".
-        command: [Quickshell.env("FLEA_BIN") || "flea", "--figure-helper"]
+        command: [Quickshell.env("FLEA_BIN") || "flea", "--figure-helper"].concat(root.warmKinds.length > 0 ? ["--warm=" + root.warmKinds.join(",")] : [])
         running: false
         stdinEnabled: true
 
@@ -110,10 +123,13 @@ Item {
                 helper.signal(root.killSignal);
                 return;
             }
+            root.warmKinds = [];
             var pending = root.pending;
             root.pending = [];
             for (var i = 0; i < pending.length; i++)
                 root.writeLine(pending[i]);
+            // A warm start with nothing asked yet still ends at the idle exit.
+            root.armIdle();
         }
 
         // A spawn that fails raises runningChanged and never exited, measured, so it reports here.
@@ -169,7 +185,10 @@ Item {
         id: idleTimer
         interval: root.idleExitMs
         onTriggered: {
-            if (Object.keys(root.waiting).length === 0 && helper.running) {
+            if (Object.keys(root.waiting).length !== 0)
+                return;
+            disk.stop();
+            if (helper.running) {
                 root.stopping = true;
                 helper.running = false;
             }
@@ -177,7 +196,7 @@ Item {
     }
 
     function armIdle() {
-        if (Object.keys(root.waiting).length === 0 && helper.running && !root.stopping)
+        if (Object.keys(root.waiting).length === 0 && (helper.running || disk.active) && !root.stopping)
             idleTimer.restart();
     }
 
@@ -218,6 +237,9 @@ Item {
         root.available = false;
         console.log("FigureService: " + error + ", figures show their fenced source");
         for (var id in root.waiting) {
+            // A ticket still with the persistent cache may yet be answered from disk.
+            if (root.waiting[id].onDisk)
+                continue;
             root.done(Number(id), "", error);
             delete root.waiting[id];
         }
@@ -249,6 +271,7 @@ Item {
             root.waiting[root.written[0]].deadline = Date.now() + root.renderMs;
         if (message.svg !== undefined) {
             root.store(asked.kind, asked.source, asked.theme, asked.display, message.svg);
+            disk.put(root.cacheKeyOf(asked.kind, asked.source, asked.theme, asked.display), message.svg);
             root.done(id, message.svg, "");
         } else {
             root.done(id, "", message.error || "render failed");
@@ -283,6 +306,42 @@ Item {
         root.sent(id, w.source);
     }
 
+    // A document with figures is on screen and none is asked for yet: start the helper now, so it is warm when they are asked.
+    function warm(blocks) {
+        if (!root.available || root.stopping || root.starting || helper.running)
+            return false;
+        var kinds = [];
+        var figures = [];
+        for (var i = 0; i < blocks.length; i++) {
+            if (blocks[i].type !== "figure")
+                continue;
+            figures.push(blocks[i].kind + "\n" + blocks[i].source);
+            if (kinds.indexOf(blocks[i].kind) < 0)
+                kinds.push(blocks[i].kind);
+        }
+        if (kinds.length === 0)
+            return false;
+        root.warmKinds = kinds;
+        // A document whose figures are all on disk likely needs no helper, so the cache is asked before one is started.
+        if (disk.available) {
+            root.warmQuery = ++root.seq;
+            disk.ask(root.warmQuery, figures);
+            return true;
+        }
+        return root.ensureHelper();
+    }
+
+    function warmAnswered(id, all) {
+        if (id !== root.warmQuery)
+            return;
+        root.warmQuery = 0;
+        if (!all && !root.stopping && !root.starting && !helper.running && Object.keys(root.waiting).length === 0)
+            root.ensureHelper();
+        else if (all)
+            root.warmKinds = [];
+        root.armIdle();
+    }
+
     function ask(kind, source, display, theme) {
         root.seq++;
         var id = root.seq;
@@ -298,15 +357,41 @@ Item {
             return id;
         }
         root.waiting[id] = { kind: kind, source: source, display: display,
-            theme: theme, generation: 0, deadline: 0, strikes: 0 };
+            theme: theme, generation: 0, deadline: 0, strikes: 0, onDisk: disk.available };
         idleTimer.stop();
         deadlineTimer.start();
+        if (disk.available)
+            disk.get(id, root.cacheKeyOf(kind, source, theme, display));
+        else
+            root.dispatch(id);
+        return id;
+    }
+
+    // The persistent cache's answer: a hit is the figure, a miss goes on to the helper.
+    function storeAnswered(id, svg) {
+        var asked = root.waiting[id];
+        if (asked === undefined || !asked.onDisk)
+            return;
+        asked.onDisk = false;
+        if (svg !== "") {
+            delete root.waiting[id];
+            root.store(asked.kind, asked.source, asked.theme, asked.display, svg);
+            root.done(id, svg, "");
+            root.armIdle();
+        } else if (!root.available) {
+            delete root.waiting[id];
+            root.done(id, "", "figure engine did not start");
+        } else {
+            root.dispatch(id);
+        }
+    }
+
+    function dispatch(id) {
         if (helper.running && !root.starting && !root.stopping) {
             root.writeLine(id);
         } else {
             root.pending.push(id);
             root.ensureHelper();
         }
-        return id;
     }
 }

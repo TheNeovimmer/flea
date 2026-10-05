@@ -1,0 +1,213 @@
+// `flea --figure-store`: the persistent SVG cache beside the bytecode, answering get, put and known lines; see AGENTS.md "Markdown figures".
+use crate::figurecache;
+use crate::json;
+use crate::oflags::O_NOFOLLOW;
+use std::fs;
+use std::io::{BufRead, Read, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+
+// The first line of an entry, so a future layout is a different file and not a misread one.
+const FORMAT: &str = "flea-figure-svg 1";
+const SVG_DIR: &str = "svg";
+const EXTENSION: &str = ".svg";
+const SCRATCH_MARK: &str = ".tmp-";
+const DIR_MODE: u32 = 0o700;
+const FILE_MODE: u32 = 0o600;
+// The bound: the most entries and bytes kept, the oldest by last access going first.
+pub const MAX_ENTRIES: usize = 512;
+pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
+// A figure over this is drawn every time rather than kept, and a file over it is not one of ours.
+const MAX_ENTRY_BYTES: u64 = 4 * 1024 * 1024;
+// A request line is one figure's source and a theme, so anything near this is not one.
+const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
+// A writer that died leaves scratch; it is swept once it is older than any live write.
+const SCRATCH_STALE: Duration = Duration::from_secs(600);
+// The source part of a name is this many hex characters of the digest.
+const SOURCE_HEX_CHARS: usize = 16;
+
+// Sample input: kind "math" and source "\\frac{a}{b}" name every entry drawn from them, whatever the theme.
+fn source_sum(kind: &str, source: &str) -> String {
+    figurecache::digest(format!("{kind}\0{source}").as_bytes())[..SOURCE_HEX_CHARS].to_string()
+}
+
+// Sample input: "mermaid\n#101315|#c0caf5|...|0|0\nfalse\nflowchart TD\n    A --> B" is kind, theme, display and source.
+fn split_key(key: &str) -> Option<(&str, &str)> {
+    let mut parts = key.splitn(4, '\n');
+    let kind = parts.next()?;
+    let source = parts.nth(2)?;
+    Some((kind, source))
+}
+
+// Sample output: "00112233445566778899aabb-00112233445566778899aabbccddeeff.svg" without the line break.
+fn entry_name(key: &str) -> Option<String> {
+    let (kind, source) = split_key(key)?;
+    Some(format!("{}-{}{EXTENSION}", source_sum(kind, source), figurecache::digest(key.as_bytes())))
+}
+
+fn is_hex(text: &str, length: usize) -> bool {
+    text.len() == length && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn is_entry(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(EXTENSION) else { return false };
+    let Some((source, key)) = stem.split_once('-') else { return false };
+    is_hex(source, SOURCE_HEX_CHARS) && is_hex(key, figurecache::KEY_HEX_CHARS)
+}
+
+// Sample input: "<entry name>.tmp-4242" is scratch of one write; anything else is not ours.
+fn is_scratch(name: &str) -> bool {
+    let Some((stem, pid)) = name.split_once(SCRATCH_MARK) else { return false };
+    is_entry(stem) && !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit())
+}
+
+// The whole file of one entry: header, then the key it was drawn for, then the svg.
+fn encode(key: &str, svg: &str) -> Vec<u8> {
+    let mut bytes = format!("{FORMAT}\n{} {}\n", key.len(), svg.len()).into_bytes();
+    bytes.extend_from_slice(key.as_bytes());
+    bytes.extend_from_slice(svg.as_bytes());
+    bytes
+}
+
+// Sample input: "flea-figure-svg 1\n5 3\nhello<s/>" is key "hello" and svg "<s/>"; any other length or key is refused.
+fn decode(bytes: &[u8], key: &str) -> Option<String> {
+    let body = bytes.strip_prefix(FORMAT.as_bytes())?.strip_prefix(b"\n")?;
+    let end = body.iter().position(|&b| b == b'\n')?;
+    let sizes = std::str::from_utf8(&body[..end]).ok()?;
+    let (key_len, svg_len) = sizes.split_once(' ')?;
+    let (key_len, svg_len): (usize, usize) = (key_len.parse().ok()?, svg_len.parse().ok()?);
+    let rest = &body[end + 1..];
+    if key_len != key.len() || rest.len() != key_len.checked_add(svg_len)? || &rest[..key_len] != key.as_bytes() {
+        return None;
+    }
+    String::from_utf8(rest[key_len..].to_vec()).ok()
+}
+
+// The svg drawn for exactly this key, or None for a missing, foreign, corrupt or linked entry; a hit counts as an access.
+pub fn get(dir: &Path, key: &str) -> Option<String> {
+    let mut file = fs::OpenOptions::new().read(true).custom_flags(O_NOFOLLOW).open(dir.join(entry_name(key)?)).ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || meta.len() > MAX_ENTRY_BYTES + key.len() as u64 + FORMAT.len() as u64 + 64 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    file.read_to_end(&mut bytes).ok()?;
+    let svg = decode(&bytes, key)?;
+    drop(file.set_modified(SystemTime::now()));
+    Some(svg)
+}
+
+// Whatever sits at a path of ours is removed as a plain file, never through a link.
+fn remove_ours(path: &Path) {
+    if fs::symlink_metadata(path).is_ok() {
+        drop(fs::remove_file(path));
+    }
+}
+
+// Writes the entry whole and swaps it in with one rename, then holds the bound; a figure too large to keep is skipped.
+pub fn put(dir: &Path, key: &str, svg: &str, entries: usize, bytes: u64) -> Option<()> {
+    if svg.len() as u64 > MAX_ENTRY_BYTES {
+        return None;
+    }
+    let name = entry_name(key)?;
+    fs::DirBuilder::new().recursive(true).mode(DIR_MODE).create(dir).ok()?;
+    let target = dir.join(&name);
+    let scratch = dir.join(format!("{name}{SCRATCH_MARK}{}", std::process::id()));
+    remove_ours(&scratch);
+    let written = fs::OpenOptions::new().write(true).create_new(true).mode(FILE_MODE).open(&scratch).and_then(|mut file| file.write_all(&encode(key, svg)));
+    if written.is_err() || fs::rename(&scratch, &target).is_err() {
+        remove_ours(&scratch);
+        return None;
+    }
+    evict(dir, entries, bytes);
+    Some(())
+}
+
+// Stale scratch goes, then the least recently used entries until the count and the bytes are within the bound.
+pub fn evict(dir: &Path, entries: usize, bytes: u64) {
+    let Ok(listing) = fs::read_dir(dir) else { return };
+    let mut kept: Vec<(SystemTime, String, u64)> = Vec::new();
+    for entry in listing.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(meta) = fs::symlink_metadata(entry.path()) else { continue };
+        let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        if is_scratch(&name) && SystemTime::now().duration_since(modified).is_ok_and(|age| age > SCRATCH_STALE) {
+            remove_ours(&entry.path());
+        } else if is_entry(&name) {
+            kept.push((modified, name, meta.len()));
+        }
+    }
+    kept.sort();
+    let mut total: u64 = kept.iter().map(|(_, _, size)| size).sum();
+    let mut count = kept.len();
+    for (_, name, size) in kept {
+        if count <= entries && total <= bytes {
+            break;
+        }
+        remove_ours(&dir.join(name));
+        count -= 1;
+        total -= size;
+    }
+}
+
+// True when every listed figure ("kind\nsource") has an entry under some theme, so a warm helper would likely go unused.
+pub fn known(dir: &Path, figures: &[String]) -> bool {
+    let Ok(listing) = fs::read_dir(dir) else { return false };
+    let names: Vec<String> = listing.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| is_entry(n)).collect();
+    !figures.is_empty()
+        && figures.iter().all(|figure| {
+            figure.split_once('\n').is_some_and(|(kind, source)| {
+                let prefix = format!("{}-", source_sum(kind, source));
+                names.iter().any(|name| name.starts_with(&prefix))
+            })
+        })
+}
+
+fn store_dir() -> Option<PathBuf> {
+    figurecache::store_root().map(|root| root.join(SVG_DIR))
+}
+
+// Sample input: {"op":"get","id":3,"key":"math\n#101315|...\ntrue\nx^2"}; put carries "svg" and no id, known carries "figures":["math\nx^2"].
+fn answer(dir: Option<&Path>, line: &str) -> Option<String> {
+    let op = json::field_str(line, "op")?;
+    let id = json::field_usize(line, "id");
+    let reply = |body: String| id.map(|id| format!("{{\"id\":{id},{body}}}"));
+    match (op.as_str(), dir) {
+        ("get", Some(dir)) => {
+            let found = json::field_str(line, "key").and_then(|key| get(dir, &key));
+            reply(found.map_or(String::from("\"miss\":true"), |svg| format!("\"svg\":\"{}\"", json::escape(&svg))))
+        }
+        ("get", None) => reply(String::from("\"miss\":true")),
+        ("put", Some(dir)) => {
+            if let (Some(key), Some(svg)) = (json::field_str(line, "key"), json::field_str(line, "svg")) {
+                put(dir, &key, &svg, MAX_ENTRIES, MAX_BYTES);
+            }
+            None
+        }
+        ("known", _) => reply(format!("\"known\":{}", dir.is_some_and(|dir| known(dir, &json::field_str_array(line, "figures"))))),
+        _ => None,
+    }
+}
+
+pub fn run() -> i32 {
+    let dir = store_dir();
+    let stdin = std::io::stdin();
+    let mut out = std::io::stdout().lock();
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { return 0 };
+        if line.len() > MAX_LINE_BYTES {
+            continue;
+        }
+        if let Some(reply) = answer(dir.as_deref(), &line) {
+            if writeln!(out, "{reply}").and_then(|()| out.flush()).is_err() {
+                return 0;
+            }
+        }
+    }
+    0
+}
+
+#[cfg(test)]
+#[path = "figurestore_tests.rs"]
+mod tests;

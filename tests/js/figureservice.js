@@ -1,5 +1,6 @@
 .import "sourcefixture.js" as Source
 .import "figureserviceexit.js" as ExitSuite
+.import "figureservicedisk.js" as DiskSuite
 
 // Sample input: function ask(kind, source, display, theme) { ... } or onExited: function (...) { ... }.
 function block(source, marker) {
@@ -54,6 +55,11 @@ function service() {
     }
     var deadlineTimer = timer()
     var idleTimer = timer()
+    // The persistent cache stands off by default, so every case below meets the helper alone.
+    var disk = { available: false, active: false, gets: [], puts: [], asks: [], stops: 0, stop: function () { this.stops++ },
+        get: function (id, key) { this.gets.push({ id: id, key: key }) }, put: function (key, svg) { this.puts.push({ key: key, svg: svg }) },
+        ask: function (id, figures) { this.asks.push({ id: id, figures: figures }) } }
+    fake.disk = disk
     var Qt = { callLater: function (callback) { fake.deferred.push(callback) } }
     var Date = { now: function () { return fake.now } }
     // Sample input: readonly property int killSignal: 9.
@@ -62,8 +68,8 @@ function service() {
     while ((constant = constants.exec(source)) !== null)
         root[constant[1]] = Number(constant[2])
     function compile(args, body) {
-        return new Function("root", "helper", "deadlineTimer", "idleTimer", "Qt", "Date",
-            "return function (" + args + ") {" + body + "}")(root, helper, deadlineTimer, idleTimer, Qt, Date)
+        return new Function("root", "helper", "deadlineTimer", "idleTimer", "Qt", "Date", "disk",
+            "return function (" + args + ") {" + body + "}")(root, helper, deadlineTimer, idleTimer, Qt, Date, disk)
     }
     // Sample input: function cacheKeyOf(kind, source, t, display) {
     var functions = /\bfunction (\w+)\(([^)]*)\)\s*\{/g
@@ -200,6 +206,7 @@ function run(check) {
     check("LRU revisit writes no helper line", fake.writes.length - writesBeforeRevisit, 0)
 
     ExitSuite.run(check, service)
+    DiskSuite.run(check, service)
 
     fake = service()
     var a = fake.ask("A", true)

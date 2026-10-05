@@ -53,6 +53,8 @@ cp tests/markdown-figures-render.qml "$test_root/config/shell.qml" || exit 1
 
 # The real helper and QML must use the same checkout's assets.
 export FLEA_UI="$PWD/ui"
+# These checks are about drawing, so every helper start runs from source and no background build outlives the sandbox.
+export FLEA_FIGURE_CACHE=off
 # Sample input: {"id":1,"kind":"math","source":"x^2","display":false,"theme":{...}}.
 helper_probe_out=$(printf '%s\n' '{"id":1,"kind":"math","source":"x^2","display":false,"theme":{"bg":"#101315","fg":"#c0caf5","accent":"#7aa2f7","font":"monospace","bodyPx":14}}' | FLEA_QJS="$qjs" "$fleabin" --figure-helper 2>&1)
 if ! printf '%s\n' "$helper_probe_out" | grep -q '"svg"'; then

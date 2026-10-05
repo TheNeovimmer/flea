@@ -67,6 +67,9 @@ Item {
     }
     // Only the active file in Rendered view may request figures.
     readonly property bool figuresArmed: root.active && root.view !== Markdown.SOURCE
+    // A parsed document that may ask for figures starts the helper at once, so it is warm when the first one is asked for.
+    readonly property var warmBlocks: root.figuresArmed && root.blocksReady && file.loaded && !root.tooLarge ? root.blockList : []
+    onWarmBlocksChanged: FigureService.warm(root.warmBlocks)
     // Parse sequence numbers reject replies for an older file.
     property var blockList: []
     property int parseSeq: 0

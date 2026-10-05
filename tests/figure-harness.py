@@ -222,7 +222,7 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
     (tools / "prlimit").write_text("#!/bin/sh\nexit 0\n")
     (tools / "prlimit").chmod(0o755)
 
-    probe = f"PROBE_BOUND_SECONDS={FRAGMENT_BOUND_SECONDS}\nprobe_out=" + section("probe_out=", "# One python driver")
+    probe = f"PROBE_BOUND_SECONDS={FRAGMENT_BOUND_SECONDS}\nnocache=(env -u HOME -u XDG_CACHE_HOME)\nprobe_out=" + section("probe_out=", "# One python driver")
     prerequisites = run('for tool in timeout python3 grep cat; do\n    command -v "$tool" || exit 1\ndone')
     check(prerequisites.returncode == 0 and os.access(binary, os.X_OK),
           "mx2b F31 jailed-probe controls have every prerequisite")
@@ -257,7 +257,7 @@ print("x" * {DIAGNOSTIC_FIXTURE_CHARS} + "UNBOUNDED_STDERR_TAIL", file=sys.stder
           "mx2b F27 missing pid receipt reports captured launch errors and qs status")
     driver_call = 'if ! ' + section('\nif ! ', '\n# A missing engine')
     (box / "drive.py").write_text('import os\nprint(os.environ.get("FLEA_QJS", "unset"))\n')
-    result = run('engine=("$fleabin" --figure-helper)\n' + driver_call, FLEA_QJS="")
+    result = run('jailed=0\nengine=("$fleabin" --figure-helper)\n' + driver_call, FLEA_QJS="")
     check(result.returncode == 0 and result.stdout.strip() == str(qjs),
           "mx2b F33 the jailed driver inherits the resolved development engine")
 
