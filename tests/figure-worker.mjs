@@ -44,7 +44,9 @@ if (process.argv[2] === "cycle") {
     const EX_PATH_TOLERANCE = 0.01;
     // The ex the formula takes through the helper's own entry point, read back from its height, or NaN when no pixel height was written.
     function drawnExPx(theme, display) {
-        const svg = renderFigure("math", "x^2", display, theme, { texToSvg: () => formula });
+        let asked = null;
+        const svg = renderFigure("math", "x^2", display, theme, { texToSvg: (source, wantDisplay) => { asked = wantDisplay; return formula; } });
+        check(asked === display, `a ${display ? "display" : "inline"} formula reaches MathJax as ${display ? "display" : "inline"}, asked ${asked}`);
         const match = svg.match(/height="([\d.]+)px"/);
         return match ? Number(match[1]) / (894.9 / MATH_UNITS_PER_EX) : NaN;
     }

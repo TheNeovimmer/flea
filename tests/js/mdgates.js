@@ -26,7 +26,7 @@ function run(check) {
     // A shell comment is one line, or one sample-input line beside one constraint line.
     var blockcost = Source.source("tests/markdown-blockcost.sh").split("\n")
     for (var h = 1; h < blockcost.length; h++) {
-        if (/^#(?!!)/.test(blockcost[h]) && /^#(?!!)/.test(blockcost[h - 1]))
+        if (/^\s*#(?!!)/.test(blockcost[h]) && /^\s*#(?!!)/.test(blockcost[h - 1]))
             check("md2 T3 blockcost.sh comment " + (h + 1) + " stands alone", /Sample(?: input)?:/.test(blockcost[h - 1] + blockcost[h]), true)
     }
     var blocksSource = Source.source("ui/js/MdBlocks.js")

@@ -4927,7 +4927,7 @@ matter) through the same writer (`partsOf` in `ui/js/MdDocument.js`, sharing the
 indented code, table, heading, thematic break, display maths, an inline-maths run, a quote in an item or a list in a quote becomes a part
 drawn with its top-level recipe. Prose alone stays one `text`; otherwise a quote carries `parts` and a list `parts[k]` beside `items[k] = ""`.
 `NEST_LIMIT` (8) keeps a deep chain linear: deeper lines stay Qt Markdown. `ui/MarkdownBlocks.qml` draws a parts array and `MarkdownBlockView.qml`
-one block, each reached through a `Loader` by file name because QML rejects a static type cycle; the Loader `source` stays empty until it is
+one block; `MarkdownList.qml` and `MarkdownQuote.qml` reach `MarkdownBlocks.qml` through a `Loader` by file name because QML rejects a static type cycle; the Loader `source` stays empty until it is
 needed, since `markdown-security` reads a Loader with a source and a Null status as an unsettled image. An empty heading or quote has no height.
 `MdChunks.js` cuts every array a list carries at the same places and gives each chunk the runs open at its edges (`carry`, `tail`, the widest
 marker per run) so a sublist at a seam keeps its text column, and a later chunk keeps the gap above its first entry. A run with inline maths sizes
