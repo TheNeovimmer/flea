@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Judges tests/markdown-taskbox.qml's picture: both task boxes are grey text glyphs of one size, never a colour emoji."""
+import shutil
 import struct
+import subprocess
 import sys
 import zlib
 
@@ -14,8 +16,16 @@ PNG_HEADER = 8
 CHUNK_FRAME = 12
 
 
-def decode(path):
-    data = open(path, "rb").read()
+# PNG spec order: the left byte wins a tie with up or upper-left, then up wins a tie with upper-left.
+def paeth(left, up, corner):
+    guess = left + up - corner
+    near_left, near_up, near_corner = abs(guess - left), abs(guess - up), abs(guess - corner)
+    if near_left <= near_up and near_left <= near_corner:
+        return left
+    return up if near_up <= near_corner else corner
+
+
+def decode(data):
     at, idat, width, height, kind = PNG_HEADER, b"", 0, 0, 0
     while at < len(data):
         size, tag = struct.unpack(">I4s", data[at:at + 8])
@@ -43,9 +53,7 @@ def decode(path):
             elif method == 3:
                 line[x] = (line[x] + (left + up) // 2) & 255
             elif method == 4:
-                guess = left + up - corner
-                near = min((abs(guess - left), left), (abs(guess - up), up), (abs(guess - corner), corner))[1]
-                line[x] = (line[x] + near) & 255
+                line[x] = (line[x] + paeth(left, up, corner)) & 255
         rows.append(line)
         previous = line
     return rows, step
@@ -62,8 +70,39 @@ def measure(rows, step, row):
     return chroma, right - left + 1, bottom - top + 1
 
 
+# Sample input: two RGB pixels, row 0 unfiltered (60 then 40), row 1 Paeth: the second byte sees left 100, up 40, upper-left 60 (pa 20, pb 40, pc 20), so left wins and 50 + 100 = 150.
+def selftest():
+    def chunk(tag, body):
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+    raw = bytes([0] + [60] * 3 + [40] * 3 + [4] + [40] * 3 + [50] * 3)
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    rows, _ = decode(png)
+    want = [[60] * 3 + [40] * 3, [100] * 3 + [150] * 3]
+    if [list(r) for r in rows] != want:
+        print("FAIL the PNG decoder breaks a Paeth tie: %s against %s" % ([list(r) for r in rows], want))
+        sys.exit(1)
+    print("ok the PNG decoder takes the left byte on a Paeth tie")
+
+
+# ffmpeg decodes the PNG on its own, so its raw pixels judge every byte this decoder reads from Qt's picture.
+def crosscheck(path):
+    if shutil.which("ffmpeg") is None:
+        print("SKIP the PNG decoder cross-check: ffmpeg is not installed")
+        return
+    rows, step = decode(open(path, "rb").read())
+    pix_fmt = "rgb24" if step == 3 else "rgba"
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-f", "rawvideo", "-pix_fmt", pix_fmt, "-"], capture_output=True, check=True).stdout
+    mine = b"".join(bytes(r) for r in rows)
+    if raw != mine:
+        print("FAIL the PNG decoder disagrees with ffmpeg on %d of %d bytes" % (sum(a != b for a, b in zip(raw, mine)), len(raw)))
+        sys.exit(1)
+    print("ok the PNG decoder matches ffmpeg on every pixel")
+
+
 def main():
-    rows, step = decode(sys.argv[1])
+    selftest()
+    crosscheck(sys.argv[1])
+    rows, step = decode(open(sys.argv[1], "rb").read())
     failures = 0
     sizes = []
     for row, name in enumerate(("open", "done")):

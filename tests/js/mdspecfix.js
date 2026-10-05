@@ -4,11 +4,11 @@
 .import "sourcefixture.js" as Source
 .import "../mdfence.js" as Fence
 
-// The parser defects the CommonMark and GFM conformance run (tests/markdown-spec.qml) found in GM's audit documents.
 // The task boxes as the writer pins them: one font family holds both glyphs.
 var PIN_OPEN = '<font face="Noto Sans Symbols 2">\u2610</font>'
 var PIN_DONE = '<font face="Noto Sans Symbols 2">\u2611</font>'
 
+// The parser defects the CommonMark and GFM conformance run (tests/markdown-spec.qml) found in GM's audit documents.
 function run(check) {
     var dir = "/home/gm/notes"
     var chrome = "#181825"

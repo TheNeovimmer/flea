@@ -100,12 +100,15 @@ QtObject {
 THEME
     TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
         timeout 30 qml6 tests/markdown-preview-state.qml -- "$text_module" || exit 1
-    # The qs log gate: one line per allowed WorkerScript passes, one more fails, and a clean log passes with none allowed.
+    # The qs log gate is exact: one null connect line per started WorkerScript, so a missing worker or a missing warning fails as an extra line does.
     . tests/qslog-gate.sh
     null_line='WARN qt.core.qobject.connect: QObject::connect(QJSEngine, QtObject): invalid nullptr parameter'
-    printf '%s\n%s\n' "$null_line" "$null_line" | qslog_nullptr 2 control > /dev/null || { echo "FAIL qs log gate refused the allowed lines"; exit 1; }
-    printf '%s\n%s\n' "$null_line" "$null_line" | qslog_nullptr 1 control > /dev/null && { echo "FAIL qs log gate accepted an extra line"; exit 1; }
-    printf 'INFO clean\n' | qslog_nullptr 0 control > /dev/null || { echo "FAIL qs log gate refused a clean log"; exit 1; }
+    started_line='DEBUG qml: QSLOG_WORKER file:///x/MarkdownWorker.js'
+    printf '%s\n%s\n%s\n' "$null_line" "$started_line" "$null_line" | qslog_nullptr control > /dev/null && { echo "FAIL qs log gate accepted a null connect beyond the started workers"; exit 1; }
+    printf '%s\n' "$null_line" | qslog_nullptr control > /dev/null && { echo "FAIL qs log gate accepted a null connect with no worker started"; exit 1; }
+    printf '%s\n' "$started_line" | qslog_nullptr control > /dev/null && { echo "FAIL qs log gate accepted a started worker with no warning"; exit 1; }
+    printf '%s\n%s\n' "$null_line" "$started_line" | qslog_nullptr control > /dev/null || { echo "FAIL qs log gate refused one warning for one worker"; exit 1; }
+    printf 'INFO clean\nDEBUG qml: QSLOG_WORKER \n' | qslog_nullptr control > /dev/null || { echo "FAIL qs log gate refused a clean log"; exit 1; }
     echo "ok qs log gate controls"
     # A decoded "1. ol" is laid out as text by the real MarkdownText, never as an ordered list item.
     TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
@@ -118,7 +121,7 @@ THEME
         timeout 30 qml6 tests/markdown-taskbox.qml -- "$text_module" "$probe_root/taskbox-default.png" > "$probe_root/taskbox-default.log" 2>&1
     python3 tests/markdown-taskbox.py "$probe_root/taskbox-default.png" || exit 1
     installed_fonts=$(fc-list)
-    if [[ "$installed_fonts" == *'Color Emoji'* ]]; then
+    if [[ "$installed_fonts" == *'Noto Color Emoji'* ]]; then
         cat > "$probe_root/emoji.conf" <<CONF
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
@@ -132,7 +135,7 @@ CONF
             timeout 30 qml6 tests/markdown-taskbox.qml -- "$text_module" "$probe_root/taskbox.png" > "$probe_root/taskbox.log" 2>&1
         python3 tests/markdown-taskbox.py "$probe_root/taskbox.png" || exit 1
     else
-        echo "SKIP taskbox: no colour emoji font is installed, so no fallback can be judged"
+        echo "SKIP taskbox: Noto Color Emoji is not installed, and the override prefers that family, so no fallback can be judged"
     fi
     # The end-follow over a real lazy list needs no Theme, so it takes no module.
     TZ=UTC QML_XHR_ALLOW_FILE_READ=1 QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
