@@ -70,6 +70,8 @@ cleanup() {
   [ ! -d "$test_root/escape-member" ] || rmdir "$test_root/escape-member"
   [ ! -d "$test_root/stale-watch" ] || rmdir "$test_root/stale-watch"
   [ ! -d "$test_root/interrupted" ] || rmdir "$test_root/interrupted"
+  [ -z "${stubborn_pid:-}" ] || command kill -KILL "$stubborn_pid" 2>/dev/null
+  [ ! -e "$test_root/stubborn" ] || unlink "$test_root/stubborn"
   [ ! -e "$test_root/sleeper" ] || unlink "$test_root/sleeper"
   rmdir "$test_root"
 }
@@ -153,15 +155,17 @@ named_running() {
   return 0
 }
 
-# A stub that ends a process waits until it is gone, so a loaded host cannot show it running to the next step.
+# A stub that ends a process waits until it is gone; one that outlives the deadline is a failed check.
 end_named_poll_s=0.05
 end_named_polls=100
 end_named() {
   local pid=$1 polls=0
   command kill "$pid" 2>/dev/null || true
   while named_running "$pid"; do
-    [ "$polls" -lt "$end_named_polls" ] \
-      || { printf 'stub: pid %s outlived SIGTERM for %s polls\n' "$pid" "$polls"; return 1; }
+    if [ "$polls" -ge "$end_named_polls" ]; then
+      check "stubbed pid $pid exits on SIGTERM" gone running
+      return 1
+    fi
     sleep "$end_named_poll_s"
     polls=$(( polls + 1 ))
   done
@@ -701,6 +705,21 @@ stop_named "$interrupted_pid"
 unlink "$test_root/interrupted/flea"
 unlink "$term_state"
 rmdir "$test_root/interrupted"
+
+printf '%s\n' '#include <signal.h>' '#include <unistd.h>' 'int main(void) { signal(SIGTERM, SIG_IGN); return sleep(60); }' \
+  | cc -x c -o "$test_root/stubborn" - || exit 1
+"$test_root/stubborn" &
+stubborn_pid=$!
+sleep 0.1
+stubborn_out=$(end_named_polls=2; end_named "$stubborn_pid"; printf 'status %s' "$?")
+command kill -KILL "$stubborn_pid" 2>/dev/null
+wait "$stubborn_pid" 2>/dev/null
+case "$stubborn_out" in
+  *"FAIL stubbed pid $stubborn_pid exits on SIGTERM"*"status 1") stubborn_seen=failed ;;
+  *) stubborn_seen="$stubborn_out" ;;
+esac
+check "a stubbed exit past its deadline fails the suite" failed "$stubborn_seen"
+unlink "$test_root/stubborn"
 
 qs() { return 7; }
 require_flea_enumeration >/dev/null 2>&1
