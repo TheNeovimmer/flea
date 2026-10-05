@@ -2,6 +2,7 @@
 # Every Markdown fixture document, raw HTML and pathological nesting included, through the real preview: none may draw blank, and each raw HTML element draws as GitHub does.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
+. "$(dirname "$0")/qslog-gate.sh"
 cd "$(dirname "$0")/.." || exit 1
 
 if ! command -v qs >/dev/null; then
@@ -16,7 +17,7 @@ trap cleanup EXIT
 
 mkdir -p "$test_root/config" "$test_root/home" "$test_root/state" "$test_root/cache" "$test_root/runtime" || exit 1
 chmod 700 "$test_root/runtime" || exit 1
-ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
+qslog_ui_copy "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-html.qml "$test_root/config/shell.qml" || exit 1
@@ -94,6 +95,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 600 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
+printf '%s\n' "$output" | qslog_nullptr markdown-html || exit 1
 printf '%s\n' "$output" | grep -aoE 'MARKDOWN_HTML .*'
 # Sample input: MARKDOWN_HTML 31 checks, 0 failed
 if ! printf '%s\n' "$output" | grep -qE 'MARKDOWN_HTML [1-9][0-9]* checks, 0 failed'; then

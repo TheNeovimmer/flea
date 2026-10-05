@@ -258,7 +258,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
             }
             // Qt's own table is short and keeps a newline reference, so the character is decoded here.
             var reference = Ent.referenceAt(body, i)
-            out.push(reference === null ? c : Md.escapeHtmlText(reference.text))
+            out.push(reference === null ? c : Md.escapeDecodedText(reference.text))
             i = reference === null ? i + 1 : reference.end
             continue
         }

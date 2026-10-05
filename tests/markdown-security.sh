@@ -2,6 +2,7 @@
 # Render hostile Markdown through the preview and Text.MarkdownText; require a control GET and zero corpus requests.
 set -u
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
+. "$(dirname "$0")/qslog-gate.sh"
 cd "$(dirname "$0")/.." || exit 1
 
 if ! command -v qs >/dev/null; then
@@ -21,7 +22,7 @@ trap cleanup EXIT
 
 mkdir -p "$test_root/config" "$test_root/home" "$test_root/state" "$test_root/cache" "$test_root/runtime" || exit 1
 chmod 700 "$test_root/runtime" || exit 1
-ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
+qslog_ui_copy "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 cp tests/markdown-security.qml "$test_root/config/shell.qml" || exit 1
@@ -233,6 +234,7 @@ delayed_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNA
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
+printf '%s\n' "$delayed_output" | qslog_nullptr markdown-security || exit 1
 source_view_verdict "$delayed_output"
 if ! printf '%s\n' "$delayed_output" | grep -q 'MARKDOWN_SECURITY reference forms resolved'; then
     echo 'FAIL reference forms did not resolve before the delayed network check'
@@ -263,6 +265,7 @@ output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 60 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 
+printf '%s\n' "$output" | qslog_nullptr markdown-security || exit 1
 source_view_verdict "$output"
 # The preview must have lived through its drain; without this line an empty qs output and a dead counter read as a pass.
 if ! printf '%s\n' "$output" | grep -q 'MARKDOWN_SECURITY drained'; then

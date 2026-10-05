@@ -48,7 +48,7 @@ Item {
         "GFM autolink": 11,
         "GFM tagfilter": 0,
         "GFM table forms": 13,
-        "Entity forms": 15,
+        "Entity forms": 37,
         "Definition forms": 2
     })
 

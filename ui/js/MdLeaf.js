@@ -15,12 +15,22 @@ var hasOwn = Object.prototype.hasOwnProperty
 var ORDERED_MARKER = new RegExp("^(\\d{1," + MAX_MARKER_DIGITS + "})([.)])(?=[ \\t]|$)")
 var HEADING_MARKER = new RegExp("^(?:[-+*](?:[ \\t]|$)|>|#{1," + MAX_HEADING_LEVEL + "}(?:[ \\t]|$)|```|~~~)")
 
-// Sample input: "[x] done" draws a checked GFM task box; "[ ] pending" draws an empty one.
+// A family that holds both box glyphs, so the open and the done box draw from one text font and neither falls back to a colour emoji font.
+var TASK_BOX_FACE = "Noto Sans Symbols 2"
+var TASK_BOX_LEAD = /^([\u2610\u2611]) /
+
+// Sample input: "[x] done" draws U+2611 and "[ ] pending" draws U+2610; pinTaskBox then sets the box in TASK_BOX_FACE.
 function taskText(text) {
     var m = /^\[([ xX])\] (.*)$/.exec(String(text))
     if (m === null)
         return text
     return (m[1] === " " ? "\u2610 " : "\u2611 ") + m[2]
+}
+
+// Sample input: "\u2611 done" answers '<font face="Noto Sans Symbols 2">\u2611</font> done'; a font tag with no colour survives Text.MarkdownText and keeps the row ink.
+function pinTaskBox(text) {
+    var m = TASK_BOX_LEAD.exec(String(text))
+    return m === null ? text : '<font face="' + TASK_BOX_FACE + '">' + m[1] + "</font>" + text.slice(1)
 }
 
 function indentOf(line) {

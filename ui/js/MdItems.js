@@ -190,6 +190,9 @@ function listBlock(event, state, inlineOf, partsOf) {
         nested = nested || entry.depth > 0 || entry.marker === ""
         loose = loose || gap
         var held = content(lines, inlineOf, partsOf)
+        held.text = Leaf.pinTaskBox(held.text)
+        if (held.parts !== undefined && held.parts[0].type === "run")
+            held.parts[0].text = Leaf.pinTaskBox(held.parts[0].text)
         holds = holds || held.parts !== undefined
         items.push(held.text)
         parts.push(held.parts !== undefined ? held.parts : null)

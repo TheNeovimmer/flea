@@ -2,6 +2,7 @@
 # Space on a small Markdown file draws a card that already holds its first block: no empty-card frame, content in frame 1.
 set -uo pipefail
 . "$(dirname "$0")/../tools/flea-sandbox-guard"
+. "$(dirname "$0")/qslog-gate.sh"
 cd "$(dirname "$0")/.." || exit 1
 for tool in qs dbus-run-session; do
     command -v "$tool" >/dev/null || { printf 'FAIL quicklook-firstframe: %s is required\n' "$tool"; exit 1; }
@@ -13,8 +14,8 @@ trap cleanup EXIT
 mkdir -p "$test_root"/{config,fixture} || exit 1
 ln -s "$(readlink -m ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -m ui/boot/Ui)" "$test_root/config/Ui" || exit 1
-ln -s "$PWD/ui/boot/fleatab.qml" "$test_root/config/fleatab.qml" || exit 1
-ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
+ln -s "$test_root/config/flea/boot/fleatab.qml" "$test_root/config/fleatab.qml" || exit 1
+qslog_ui_copy "$test_root/config/flea" || exit 1
 cp tests/quicklook-firstframe.qml "$test_root/config/shell.qml" || exit 1
 # A README-sized document: headings, paragraphs, a list, a fence, a quote and a table, well under the 64 KiB worker threshold.
 cat > "$test_root/fixture/a-notes.md" <<'DOC'
@@ -81,13 +82,16 @@ run_leg() {
     ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QML_DISABLE_DISK_CACHE \
         HOME="$leg_root/home" XDG_STATE_HOME="$leg_root/state" XDG_CACHE_HOME="$leg_root/cache" \
         XDG_RUNTIME_DIR="$leg_root/runtime" FLEA_BIN="$PWD/target/debug/flea" FLEA_PATH="$test_root/fixture" \
-        FLEA_REDUCED_MOTION="$reduced" QLFF_UI="$PWD/ui" QLFF_DIR="$test_root/fixture" QLFF_STEPS="$steps" QLFF_CLASS="$class" QLFF_SWEEP="$sweep" QLFF_MODE="${QLFF_MODE:-call}" \
+        FLEA_REDUCED_MOTION="$reduced" QLFF_UI="$test_root/config/flea" QLFF_DIR="$test_root/fixture" QLFF_STEPS="$steps" QLFF_CLASS="$class" QLFF_SWEEP="$sweep" QLFF_MODE="${QLFF_MODE:-call}" \
         QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
         dbus-run-session -- bash -c 'timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$limit" "$test_root/config" "$log" 2> "$leg_root/bus.log" ) 2>/dev/null
     status=$?
     legs=$((legs + 1))
     [ -z "${FLEA_CI_SUITE_LOGS:-}" ] || cp "$log" "$FLEA_CI_SUITE_LOGS/quicklook-firstframe-$leg.log" 2>/dev/null
     grep -a 'QLFF \(STEP\|FAIL\|DONE\)' "$log" | sed "s/^/$leg: /"
+    if ! qslog_nullptr "quicklook-firstframe $leg" < "$log"; then
+        failures=$((failures + 1))
+    fi
     if [ "$status" -ne 0 ] || [ "$(grep -ac 'QLFF DONE' "$log")" -ne 1 ] || grep -aqE 'QLFF FAIL|TypeError|ReferenceError' "$log"; then
         printf 'FAIL quicklook-firstframe: %s leg did not hold (qs exit %s)\n' "$leg" "$status"
         failures=$((failures + 1))

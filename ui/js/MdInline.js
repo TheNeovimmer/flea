@@ -126,6 +126,17 @@ function escapeHtmlText(content) {
     return Esc.escapeText(content)
 }
 
+// Sample input: "1. ol" answers "&#49;&#46; ol", so a decoded "&#49;. ol" never reaches Qt as an ordered list marker; "a<b" answers "a&#60;b".
+var ASCII_DIGIT_SPLIT = /([0-9])/
+
+// Text a character reference decoded to: punctuation and digits as numeric entities, so no marker, fence or rule forms at a line start.
+function escapeDecodedText(content) {
+    var parts = String(content).split(ASCII_DIGIT_SPLIT)
+    for (var i = 0; i < parts.length; i++)
+        parts[i] = i % 2 === 1 ? "&#" + parts[i].charCodeAt(0) + ";" : escapeHtmlText(parts[i])
+    return parts.join("")
+}
+
 // A link as a font-wrapped anchor: the importer hardcodes its link blue, but a font tag survives it.
 function linkHtml(label, url, ink, markup) {
     if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(ink || "")))
