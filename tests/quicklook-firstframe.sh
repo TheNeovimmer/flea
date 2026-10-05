@@ -17,6 +17,7 @@ ln -s "$(readlink -m ui/boot/Ui)" "$test_root/config/Ui" || exit 1
 ln -s "$test_root/config/flea/boot/fleatab.qml" "$test_root/config/fleatab.qml" || exit 1
 qslog_ui_copy "$test_root/config/flea" || exit 1
 cp tests/quicklook-firstframe.qml "$test_root/config/shell.qml" || exit 1
+cp tests/quicklook-firstframe.js "$test_root/config/quicklook-firstframe.js" || exit 1
 # A README-sized document: headings, paragraphs, a list, a fence, a quote and a table, well under the 64 KiB worker threshold.
 cat > "$test_root/fixture/a-notes.md" <<'DOC'
 # a-notes: Quick Look notes
@@ -82,7 +83,7 @@ run_leg() {
     ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u QML_DISABLE_DISK_CACHE \
         HOME="$leg_root/home" XDG_STATE_HOME="$leg_root/state" XDG_CACHE_HOME="$leg_root/cache" \
         XDG_RUNTIME_DIR="$leg_root/runtime" FLEA_BIN="$PWD/target/debug/flea" FLEA_PATH="$test_root/fixture" \
-        FLEA_REDUCED_MOTION="$reduced" QLFF_UI="$test_root/config/flea" QLFF_DIR="$test_root/fixture" QLFF_STEPS="$steps" QLFF_CLASS="$class" QLFF_SWEEP="$sweep" QLFF_MODE="${QLFF_MODE:-call}" \
+        FLEA_REDUCED_MOTION="$reduced" QLFF_UI="$test_root/config/flea" QLFF_DIR="$test_root/fixture" QLFF_STEPS="$steps" QLFF_CLASS="$class" QLFF_SWEEP="$sweep" QLFF_MODE="${QLFF_MODE:-call}" QLFF_REENTER="${QLFF_REENTER:-}" QLFF_LATEROWS="${QLFF_LATEROWS:-}" \
         QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_FORCE_STDERR_LOGGING=1 \
         dbus-run-session -- bash -c 'timeout "$1" qs -p "$2" > "$3" 2>&1' _ "$limit" "$test_root/config" "$log" 2> "$leg_root/bus.log" ) 2>/dev/null
     status=$?
@@ -90,6 +91,9 @@ run_leg() {
     [ -z "${FLEA_CI_SUITE_LOGS:-}" ] || cp "$log" "$FLEA_CI_SUITE_LOGS/quicklook-firstframe-$leg.log" 2>/dev/null
     grep -a 'QLFF \(STEP\|FAIL\|DONE\)' "$log" | sed "s/^/$leg: /"
     if ! qslog_nullptr "quicklook-firstframe $leg" < "$log"; then
+        failures=$((failures + 1))
+    fi
+    if ! qslog_crash "quicklook-firstframe $leg" "$log"; then
         failures=$((failures + 1))
     fi
     if [ "$status" -ne 0 ] || [ "$(grep -ac 'QLFF DONE' "$log")" -ne 1 ] || grep -aqE 'QLFF FAIL|TypeError|ReferenceError' "$log"; then
@@ -102,6 +106,8 @@ run_leg reduced "$notes" "" 1 1 90
 run_leg motion "$notes" "" "" 1 90
 # Small then big then small, closed and reopened, then a move on the open card in both orders (small to big and big to small).
 run_leg order "a-notes.md:inline,b-big.md:async,a-notes.md:inline,c-mid.md:async,d-small.md:inline,b-big.md:async,d-small.md:inline,a-notes.md:inline,b-big.md:async:move,c-mid.md:async:move,d-small.md:inline:move,c-mid.md:async:move,b-big.md:async:move,a-notes.md:inline:move" "" 1 "" 120
+# A poll tick that runs inside the close key's own event loop, as one does on a loaded host, must not end the run under the key's handler.
+QLFF_REENTER=1 run_leg reenter "a-notes.md:inline" "" 1 "" 60
 # A share, a phone and a USB drive read nothing ahead and nothing inside the key; the pane refuses past 256 KiB there, so only small files.
 for class in network phone usb; do
     run_leg "class-$class" "a-notes.md:async,d-small.md:async" "$class" 1 "" 60
@@ -118,5 +124,7 @@ if pgrep -f -- "head -c [0-9]* -- $test_root/fixture/e-pipe.md" >/dev/null; then
 fi
 # A row that lists 900 bytes for a 300 KB file reads only up to the cap, and nothing is prepared from it.
 run_leg capped "c-mid.md:capped" "" 1 "" 60
+# The same row, after a late rows reply lists the file's real size again: the stale size is put back and the cursor rests again.
+QLFF_LATEROWS=1 run_leg latecapped "c-mid.md:capped" "" 1 "" 60
 printf 'quicklook-firstframe: %s legs, %s failed\n' "$legs" "$failures"
 [ "$failures" -eq 0 ]

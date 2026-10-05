@@ -3,7 +3,7 @@
 import QtQuick
 import QtTest
 import Quickshell
-import "flea/js/Markdown.js" as Markdown
+import "quicklook-firstframe.js" as Fresh
 import "flea/js/PreviewKeys.js" as PreviewKeys
 
 // Sample output: "QLFF STEP 1 a-notes.md inline frames=1 empty=0" is one open, in frames counted from the card's first.
@@ -18,6 +18,12 @@ ShellRoot {
     // A storage class the leg forces, or "unknown" to hold the pane before its class reply (storageKnown false, class "").
     readonly property string forcedClass: Quickshell.env("QLFF_CLASS")
     readonly property bool realKey: Quickshell.env("QLFF_MODE") === "key"
+    // QLFF_REENTER=1 runs one poll tick inside the close key's event loop, which a loaded host does by chance.
+    readonly property bool reenter: Quickshell.env("QLFF_REENTER") === "1"
+    // QLFF_LATEROWS=1 answers a capped or rest step's first rest with a rows reply that lists the file's real size again, as a late stat reply does on a loaded host.
+    readonly property bool lateRows: Quickshell.env("QLFF_LATEROWS") === "1"
+    // The size a capped or rest step's row lists, as a listing does for a file that grew since.
+    readonly property int staleBytes: 900
     // Polls of a quiet window before a step starts, so the previous close and the listing are done.
     readonly property int quietPolls: 8
     // A step that never reaches content is a harness fault, not a duration the product is held to; a 1 MiB parse is the slowest.
@@ -49,6 +55,10 @@ ShellRoot {
     property var prepare: null
     // The first prepared parse of a run is the worker's; later opens reuse the entry Quick Look stored itself.
     property bool compared: false
+    // True while a real key's event loop runs: a poll tick inside it must not finish the run, as Qt.exit there tears the root down under the key's own handler.
+    property bool inKey: false
+    property int realBytes: 0
+    property int lateRowsAt: -1
 
     function log(line) { console.log("QLFF " + line) }
     function finish() {
@@ -68,6 +78,12 @@ ShellRoot {
         } else if (pane.storageClass !== root.forcedClass) {
             pane.storageClass = root.forcedClass
         }
+    }
+    function press() {
+        if (root.reenter) kicker.start()
+        root.inKey = true
+        root.keys.keyClick(Qt.Key_Space, Qt.NoModifier, -1)
+        root.inKey = false
     }
     function cur() { return root.steps[root.step] }
     function target() { return root.fixture + "/" + root.cur().name }
@@ -191,7 +207,7 @@ ShellRoot {
         if (step.via === "move") {
             PreviewKeys.act(root.indexOf(step.name) > pane.cursorIndex ? "cursorDown" : "cursorUp", pane)
         } else if (root.realKey) {
-            root.keys.keyClick(Qt.Key_Space, Qt.NoModifier, -1)
+            root.press()
         } else {
             PreviewKeys.open(pane)
             // No event has run since the key: an inline document's blocks are already in the card, and a big one has not been read.
@@ -217,25 +233,6 @@ ShellRoot {
         if (root.step >= root.steps.length) root.finish()
     }
 
-    // Object keys in sorted order, because a block that crossed the worker's boundary comes back with its keys sorted.
-    function canon(v) {
-        if (v === null || typeof v !== "object") return JSON.stringify(v)
-        if (Array.isArray(v)) return "[" + v.map(root.canon).join(",") + "]"
-        return "{" + Object.keys(v).sort().filter(function (k) { return v[k] !== undefined }).map(function (k) { return JSON.stringify(k) + ":" + root.canon(v[k]) }).join(",") + "}"
-    }
-    // The blocks the card took from the prepared entry (the worker's parse) against a fresh parse of the same text on the merged parser, kinds the stage added among them.
-    function sameAsFreshParse(d, n) {
-        var fresh = Markdown.blocks(d.rawText, Markdown.dirOf(d.path), d.chromeHex, d.inkHex)
-        var kinds = fresh.map(function (b) { return b.type })
-        var empty = fresh.some(function (b) { return b.type === "heading" && b.text === "" })
-        if (kinds.indexOf("images") < 0 || kinds.indexOf("image") < 0 || kinds.indexOf("quote") < 0 || !empty)
-            root.fail("step " + n + " fixture lost a kind the prepared parse must carry: " + kinds.join("+"))
-        if (root.canon(d.blockList) !== root.canon(fresh))
-            root.fail("step " + n + " drew a prepared parse that differs from a fresh parse of the same text")
-        else
-            root.log("PARSE " + n + " prepared equals fresh blocks=" + fresh.length)
-    }
-
     // The checks of one finished step, run once its document's first block is in the card.
     function judge() {
         var step = root.cur()
@@ -251,7 +248,7 @@ ShellRoot {
             if (step.via === "space" && (!d || d.reusedParses !== 1)) root.fail("step " + n + " parsed again instead of taking the prepared entry")
             if (step.via === "space" && d && d.reusedParses === 1 && !root.compared) {
                 root.compared = true
-                root.sameAsFreshParse(d, n)
+                Fresh.sameAsFreshParse(root, d, n)
             }
         } else if (blocked !== 0) {
             root.fail("step " + n + " blocked " + blocked + " time(s) for " + step.name + ", want 0")
@@ -259,17 +256,28 @@ ShellRoot {
     }
 
     Timer {
+        id: kicker
+        interval: 0
+        onTriggered: poll.triggered()
+    }
+
+    Timer {
+        id: poll
         interval: root.pollMs
         repeat: true
         running: true
         onTriggered: {
+            if (root.inKey) return
+            var pane = root.pane()
             if (Date.now() - root.stageAt > root.watchdogMs) {
+                var at = pane ? pane.rowFor(pane.cursorIndex) : null
                 root.fail("stage " + root.stage + " stalled in step " + (root.step + 1) + " reads=" + (root.prepare ? root.prepare.reads : -1)
-                    + " prepared=" + (root.prepare ? root.prepare.preparedPath : "") + " quiet=" + root.quiet)
+                    + " prepared=" + (root.prepare ? root.prepare.preparedPath : "") + " quiet=" + root.quiet
+                    + " cursor=" + (at ? at.n + ":" + at.s : "none") + " resting=" + (root.prepare ? root.prepare.resting : "") + " listInFlight=" + (pane ? pane.listInFlight : "")
+                    + " storageKnown=" + (pane ? pane.storageKnown : "") + " class=" + (pane ? pane.storageClass : ""))
                 root.finish()
                 return
             }
-            var pane = root.pane()
             // The first poll that finds the prepare holds it, long before a listing and its rest can complete.
             if (root.stage === 0 && pane && root.pv() && root.forcedClass !== "" && !root.prepare) {
                 var held = root.find(root.pv(), "QuickLookPrepare")
@@ -301,8 +309,27 @@ ShellRoot {
                 var row = pane.rowFor(pane.cursorIndex)
                 if (step.via !== "move" && (!row || row.n !== step.name)) {
                     // A capped or rest step's row says 900 bytes, as a listing does for a file that grew since, so only the file's own type can refuse it.
-                    if (step.expect === "capped" || step.expect === "rest") pane.rowFor(root.indexOf(step.name)).s = 900
+                    if (step.expect === "capped" || step.expect === "rest") {
+                        var stale = pane.rowFor(root.indexOf(step.name))
+                        if (stale.s !== root.staleBytes) root.realBytes = stale.s
+                        stale.s = root.staleBytes
+                    }
                     pane.cursorIndex = root.indexOf(step.name)
+                    root.quiet = 0
+                    return
+                }
+                if (root.lateRows && root.lateRowsAt !== root.step && (step.expect === "capped" || step.expect === "rest")) {
+                    root.lateRowsAt = root.step
+                    var late = pane.rows.map(function (r) { return Object.assign({}, r) })
+                    late[pane.cursorIndex - pane.held].s = root.realBytes
+                    pane.rows = late
+                    root.quiet = 0
+                    return
+                }
+                // A rows reply that lands after the override lists the real size again, which no read at rest answers: put the stale size back and rest again.
+                if ((step.expect === "capped" || step.expect === "rest") && row.s !== root.staleBytes) {
+                    row.s = root.staleBytes
+                    root.prepare.moved()
                     root.quiet = 0
                     return
                 }
@@ -353,7 +380,7 @@ ShellRoot {
                 // The next step is a move on the open card, or a second Space closes, the same real key.
                 var after = root.steps[root.step + 1]
                 if (after && after.via === "move") { root.step++; root.stage = 1; root.quiet = 0; root.stageAt = Date.now(); return }
-                root.keys.keyClick(Qt.Key_Space, Qt.NoModifier, -1)
+                root.press()
                 return
             }
             if (root.stage === 3) {
