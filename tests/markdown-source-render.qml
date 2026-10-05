@@ -42,16 +42,13 @@ ShellRoot {
             }
         }
     }
+    // The Source list and its first chunk's text: the notes fit one chunk, so it holds the whole file and carries the insets.
     function sourceParts() {
-        for (var i = 0; i < sourcePane.children.length; i++) {
-            var flick = sourcePane.children[i]
-            if (flick === sourcePane.bodyItem || flick.contentItem === undefined)
-                continue
-            for (var j = 0; j < flick.contentItem.children.length; j++) {
-                var text = flick.contentItem.children[j]
-                if (text.text !== undefined)
-                    return { flick: flick, text: text }
-            }
+        var flick = sourcePane.sourceItem
+        for (var j = 0; j < flick.contentItem.children.length; j++) {
+            var row = flick.contentItem.children[j]
+            if (row.objectName === "sourceChunk" && row.index === 0)
+                return { flick: flick, text: row.label }
         }
         return null
     }
@@ -70,7 +67,8 @@ ShellRoot {
         check(at.y === first.y && at.y === sourcePane.insetY,
             "source top equals rendered inset" + label + " (" + at.y + "/" + first.y + "/" + sourcePane.insetY + ")")
         check(sourcePane.width - at.x - parts.text.width === sourcePane.insetX, "source right inset" + label)
-        check(parts.flick.contentHeight === Math.max(parts.flick.height, parts.text.implicitHeight + 2 * sourcePane.insetY),
+        // The list holds both insets in its header and footer, so the scrollable height is the text plus both.
+        check(parts.flick.contentHeight === parts.text.implicitHeight + 2 * sourcePane.insetY,
             "source bottom inset remains scrollable" + label)
         check(parts.text.textFormat === Text.PlainText && parts.text.text === sourcePane.rawText, "source remains verbatim" + label)
         var scrollbars = 0

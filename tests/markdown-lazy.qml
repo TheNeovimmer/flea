@@ -47,6 +47,35 @@ ShellRoot {
         }
         shell.log("blocks=" + md.blockList.length + " delegates=" + md.delegateCount()
             + " offthread=" + md.parsedOffThread)
+        md.view = "source"
+        Qt.callLater(shell.reportSource)
+    }
+
+    // The same 560 KiB as Source: a screenful of chunks is laid out, and the end of the list shows the file's last line.
+    function reportSource() {
+        var list = md.sourceItem
+        list.forceLayout()
+        var first = md.sourceChars
+        list.positionViewAtEnd()
+        list.forceLayout()
+        var tail = md.rawText.split("\n").filter(function (l) { return l.indexOf("var section") === 0 }).pop()
+        var reached = false
+        for (var i = 0; i < list.contentItem.children.length; i++) {
+            var row = list.contentItem.children[i]
+            if (row.objectName === "sourceChunk" && String(row.label.text).indexOf(tail) >= 0)
+                reached = true
+        }
+        shell.log("source chars=" + first + " total=" + md.rawText.length + " endlaid=" + md.sourceChars + " lastline=" + reached)
+        // Every chunk built in turn, put back with the newlines its cut dropped, is the file exactly.
+        var starts = list.starts
+        var joined = ""
+        for (var c = 0; c < starts.length; c++) {
+            list.positionViewAtIndex(c, ListView.Beginning)
+            list.forceLayout()
+            var piece = String(list.itemAtIndex(c).label.text)
+            joined += piece + (piece.length < (c + 1 < starts.length ? starts[c + 1] : md.rawText.length) - starts[c] ? "\n" : "")
+        }
+        shell.log("source roundtrip chunks=" + starts.length + " same=" + (joined === md.rawText))
         shell.done = true
         shell.quit()
     }

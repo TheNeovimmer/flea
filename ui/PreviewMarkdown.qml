@@ -70,7 +70,8 @@ Item {
     // A document past the nesting limit parses to one sentinel block, and the pane then shows its source behind a notice.
     readonly property bool tooDeep: root.blockList.length === 1 && root.blockList[0].type === "deep"
     readonly property string shownView: root.tooDeep ? Markdown.SOURCE : root.view
-    readonly property Item noticeItem: deepNotice
+    readonly property Item noticeItem: sourceList.noticeItem
+    readonly property Item sourceItem: sourceList
     // Only the active file in Rendered view may request figures.
     readonly property bool figuresArmed: root.active && root.shownView !== Markdown.SOURCE
     // A parsed document that may ask for figures starts the helper at once, so it is warm when the first one is asked for.
@@ -125,15 +126,17 @@ Item {
     // The bar's line count reads only once there is a file behind it, never "0 lines" first.
     readonly property bool contentReady: file.loaded && root.blocksReady
         && !root.tooLarge && !root.readFailed && root.parseError === ""
+    // A first screen is drawn: blocks are in the list, the head of a parse still running or a whole list, and the swap counts either as shown.
+    readonly property bool firstScreen: file.loaded && root.parseError === "" && root.blockList.length > 0
     // True when the reader has settled with nothing to put in the frame, the way PreviewLines.blank reads.
     readonly property bool blank: root.tooLarge
         || (root.active && !root.readFailed && file.loaded && root.rawText.length === 0)
 
     // What the Source text holds, so a suite sees that Rendered lays none out.
-    readonly property int sourceChars: sourceText.text.length
+    readonly property int sourceChars: sourceList.laidChars
     readonly property Item bodyItem: body
     // The offset the wheel moved, in whichever view shows, for Quick Look's IPC.
-    readonly property real scrollY: root.shownView === Markdown.SOURCE ? sourceFlick.contentY : body.contentY
+    readonly property real scrollY: root.shownView === Markdown.SOURCE ? sourceList.contentY : body.contentY
     // The render suite reads live delegate geometry; only visible blocks plus the cache exist, so offscreen blocks answer null.
     function blockItem(i) {
         var kids = body.contentItem.children
@@ -167,8 +170,8 @@ Item {
         return { ready: fig.ready, failed: fig.failed, working: fig.working, boxW: box.width,
             imgW: fig.fitWidth, imgH: fig.fitHeight }
     }
-    readonly property real flickContentHeight: sourceFlick.visible
-        ? sourceFlick.contentHeight : body.contentHeight
+    readonly property real flickContentHeight: sourceList.visible
+        ? sourceList.contentHeight : body.contentHeight
 
     visible: root.active
 
@@ -328,6 +331,13 @@ Item {
     function landed(messageObject) {
         if (messageObject.seq !== root.parseSeq)
             return
+        // The head of a first parse draws the first screen; the parse goes on, and the whole list replaces it when it lands.
+        if (messageObject.partial === true) {
+            root.settingBlocks = true
+            root.blockList = messageObject.blocks
+            root.settingBlocks = false
+            return
+        }
         root.parsing = false
         root.appliedSeq = messageObject.seq
         if (messageObject.error !== "") {
@@ -375,13 +385,13 @@ Item {
     }
 
     // The synchronous parse of one request, landed like a worker reply: the small-file path and the worker's recovery both end here.
-    function parseNow(text, dir, chrome, ink) {
-        var blocks = root.shareParse ? Prepared.take(root.path, text, dir, chrome, ink) : null
+    function parseNow(text, dir, chrome, ink, deep) {
+        var blocks = root.shareParse && !deep ? Prepared.take(root.path, text, dir, chrome, ink) : null
         if (blocks !== null)
             root.reusedParses++
         try {
             if (blocks === null)
-                blocks = Markdown.blocks(text, dir, chrome, ink)
+                blocks = deep ? Markdown.deepBlocks() : Markdown.blocks(text, dir, chrome, ink)
         } catch (e) {
             root.parseError = String(e.message || e)
             root.appliedSeq = root.parseSeq
@@ -389,7 +399,7 @@ Item {
             root.askedAny = false
             return
         }
-        if (root.shareParse)
+        if (root.shareParse && !deep)
             Prepared.store(root.path, text, dir, chrome, ink, blocks)
         // Taken once the parse is good and before the model reset, like the worker landing: a parse that throws takes no place.
         root.rememberScroll()
@@ -426,18 +436,21 @@ Item {
         root.parseSeq++
         root.parseRuns++
         root.parsing = true
-        // The live text length determines worker activation before bindings update.
-        var wantWorker = text.length > root.workerThreshold
+        // The live text length decides worker activation before bindings update; a big text with a deep head lands the sentinel unparsed.
+        var big = text.length > root.workerThreshold
+        var deep = big && Markdown.deepHead(text).deep
+        var wantWorker = big && !deep
         parserLoader.active = wantWorker
         var w = parserLoader.item
         if (wantWorker && w) {
             parseFallback.restart()
-            w.sendMessage({ seq: root.parseSeq, source: text, dir: dir, chrome: root.chromeHex, ink: root.inkHex })
+            // Only a file with nothing drawn yet sends a head: a reparse keeps the list and the reader's place until the whole one lands.
+            w.sendMessage({ seq: root.parseSeq, source: text, dir: dir, chrome: root.chromeHex, ink: root.inkHex, head: root.blockList.length === 0 ? Markdown.HEAD_BLOCKS : 0 })
             return
         }
         parserLoader.active = false
         parseFallback.stop()
-        root.parseNow(text, dir, root.chromeHex, root.inkHex)
+        root.parseNow(text, dir, root.chromeHex, root.inkHex, deep)
     }
 
     onRawTextChanged: root.askParse()
@@ -460,57 +473,22 @@ Item {
     // Warming both view heights prevents a contentHeight binding loop on Rendered/Source changes.
     onViewChanged: {
         body.contentHeight
-        sourceText.implicitHeight
+        sourceList.contentHeight
     }
 
-    Flickable {
-        id: sourceFlick
+    // Only the shown Source (a too-deep one too) lays out text, a few chunks at a time: an unseen 1 MiB Source held the UI thread 100 ms.
+    Flea.MarkdownSource {
+        id: sourceList
         anchors.fill: parent
-        clip: true
-        contentWidth: width
-        contentHeight: Math.max(height, sourceText.measuredHeight + sourceText.y + root.insetY)
         visible: (!root.tooLarge && !root.readFailed && root.parseError === "")
             && root.shownView === Markdown.SOURCE
-
-        FastScrollHandler {
-            parent: sourceFlick
-            flickable: sourceFlick
-        }
-        Flea.ViewportScrollBar {
-            parent: sourceFlick
-            anchors { top: parent.top; right: parent.right }
-            flickable: sourceFlick
-        }
-        Text {
-            id: sourceText
-            // Measure Source outside the scroll-height binding, where Text's lazy getter can relayout and notify.
-            property real measuredHeight: 0
-            onImplicitHeightChanged: if (root.shownView === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
-            onVisibleChanged: if (root.shownView === Markdown.SOURCE) sourceText.measuredHeight = sourceText.implicitHeight
-            x: root.insetX
-            y: root.insetY + (root.tooDeep ? deepNotice.height + root.blockGap : 0)
-            width: sourceFlick.width - 2 * root.insetX
-            // Only the shown Source (a too-deep document included) lays out text: an unseen 1 MiB Source held the UI thread 100 ms.
-            text: root.shownView === Markdown.SOURCE ? root.rawText : ""
-            textFormat: Text.PlainText
-            wrapMode: Text.Wrap
-            color: Theme.color.foreground
-            font.family: Theme.font.family
-            font.pixelSize: root.bodyPx
-        }
-        Text {
-            id: deepNotice
-            visible: root.tooDeep
-            x: root.insetX
-            y: root.insetY
-            width: sourceFlick.width - 2 * root.insetX
-            text: Markdown.deepNotice()
-            textFormat: Text.PlainText
-            elide: Text.ElideRight
-            color: Theme.color.muted
-            font.family: Theme.font.family
-            font.pixelSize: Theme.font.caption
-        }
+        text: root.shownView === Markdown.SOURCE ? root.rawText : ""
+        notice: root.tooDeep ? Markdown.deepNotice() : ""
+        insetX: root.insetX
+        insetY: root.insetY
+        blockGap: root.blockGap
+        bodyPx: root.bodyPx
+        cachePixels: root.blockCachePixels
     }
 
     // Render only visible blocks and a bounded cache, even for a 1 MiB document.

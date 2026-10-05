@@ -95,4 +95,39 @@ if printf '%s\n' "$output" | grep -q 'MARKDOWN_LAZY FAIL'; then
     printf '%s\n' "$output" | grep -aE 'MARKDOWN_LAZY|ERROR' | head -10
     exit 1
 fi
-check_report "$output"
+check_report "$output" || exit 1
+# Sample input: MARKDOWN_LAZY source chars=8190 total=573019 endlaid=12286 lastline=true.
+check_source() {
+    local line chars total endlaid reached
+    # The Source view lays out a few chunks of 4096 characters, never the whole file, at the top and at the end.
+    local max_chars=24576
+    line=$(printf '%s\n' "$1" | grep -aE 'MARKDOWN_LAZY source chars=' | head -1)
+    [ -n "$line" ] || { echo "FAIL the Source view never reported"; return 1; }
+    chars=$(printf '%s\n' "$line" | grep -aoE 'chars=[0-9]+' | grep -aoE '[0-9]+')
+    total=$(printf '%s\n' "$line" | grep -aoE 'total=[0-9]+' | grep -aoE '[0-9]+')
+    endlaid=$(printf '%s\n' "$line" | grep -aoE 'endlaid=[0-9]+' | grep -aoE '[0-9]+')
+    reached=$(printf '%s\n' "$line" | grep -aoE 'lastline=[a-z]+' | cut -d= -f2)
+    [ "$chars" -gt 0 ] && [ "$chars" -le "$max_chars" ] && [ "$endlaid" -le "$max_chars" ] || { echo "FAIL the Source view laid out $chars then $endlaid of $total characters, bound $max_chars"; return 1; }
+    [ "$reached" = true ] || { echo "FAIL the end of the Source list never showed the file's last line"; return 1; }
+    printf 'PASS Source lays out %s then %s of %s characters and reaches the last line\n' "$chars" "$endlaid" "$total"
+}
+if check_source "MARKDOWN_LAZY source chars=573019 total=573019 endlaid=573019 lastline=true" >/dev/null; then
+    echo "FAIL a Source view that laid out the whole file was accepted"
+    exit 1
+fi
+check_source "$output" || exit 1
+# Sample input: MARKDOWN_LAZY source roundtrip chunks=140 same=true.
+check_roundtrip() {
+    local line chunks same
+    line=$(printf '%s\n' "$1" | grep -aE 'MARKDOWN_LAZY source roundtrip' | head -1)
+    [ -n "$line" ] || { echo "FAIL the Source chunks never reported their round trip"; return 1; }
+    chunks=$(printf '%s\n' "$line" | grep -aoE 'chunks=[0-9]+' | grep -aoE '[0-9]+')
+    same=$(printf '%s\n' "$line" | grep -aoE 'same=[a-z]+' | cut -d= -f2)
+    [ "$chunks" -gt 1 ] && [ "$same" = true ] || { echo "FAIL $chunks Source chunks do not put the file back (same=$same)"; return 1; }
+    printf 'PASS %s Source chunks put the file back exactly\n' "$chunks"
+}
+if check_roundtrip "MARKDOWN_LAZY source roundtrip chunks=140 same=false" >/dev/null; then
+    echo "FAIL chunks that do not put the file back were accepted"
+    exit 1
+fi
+check_roundtrip "$output"

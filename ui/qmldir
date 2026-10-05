@@ -18,6 +18,7 @@ Crumb 1.0 Crumb.qml
 PreviewColumn 1.0 PreviewColumn.qml
 PreviewLines 1.0 PreviewLines.qml
 PreviewMarkdown 1.0 PreviewMarkdown.qml
+MarkdownSource 1.0 MarkdownSource.qml
 MarkdownRemote 1.0 MarkdownRemote.qml
 MarkdownPane 1.0 MarkdownPane.qml
 MarkdownText 1.0 MarkdownText.qml

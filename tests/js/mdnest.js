@@ -1,5 +1,6 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdChunks.js" as Chunks
+.import "../../ui/js/MdBlocks.js" as Blocks
 .import "../../ui/js/MarkdownLists.js" as Lists
 
 // What an item or a quote holds besides prose: each block kind arrives as its own part, drawn with its top-level recipe.
@@ -148,4 +149,136 @@ function run(check) {
     // The warm walk finds every figure in document order: top level, in an item, in a quote, and a quote in an item in a quote.
     var walked = Markdown.figuresIn(blocks("$$\na\n$$\n\n- x\n  ```math\n  b\n  ```\n\n> ```mermaid\n> c\n> ```\n\n> - y\n>   > ```math\n>   > d\n>   > ```\n"), [])
     check("the warm walk names every figure, nested ones included, in document order", walked.map(function (f) { return f.source.trim() }).join(","), "a,b,c,d")
+
+    // The deep verdict reads only a bounded head of the text, so a pathological document is refused without a full parse or a worker.
+    function chain(prefix, n, tail) {
+        return new Array(n + 1).join(prefix) + tail
+    }
+    function deepByParse(doc) {
+        var list = blocks(doc)
+        return list.length === 1 && list[0].type === "deep"
+    }
+    var flood = new Array(600).join("a paragraph line that fills the document well past the head\n")
+    var corpus = [chain("> ", 400, "x\n") + flood, chain("> ", 33, "x\n"), chain("> ", 32, "x\n"), chain("- ", 33, "x\n"), chain("- ", 32, "x\n"),
+        chain("> - ", 17, "x\n"), chain("> - ", 16, "x\n"), "```\n" + chain("> ", 400, "x\n") + "```\n", "text\n" + chain("> ", 40, "x\n"),
+        chain("  ", 5, "> ") + chain("> ", 33, "x\n"), flood + chain("> ", 400, "x\n"),
+        "<!--\n" + chain("> ", 400, "x\n") + flood + "-->\n", "<!-- " + chain("> ", 400, "x\n") + flood]
+    corpus.forEach(function (doc, at) {
+        var head = Markdown.deepHead(doc)
+        check("document " + at + ": a deep head is deep to the full parse too", head.deep ? deepByParse(doc) : true, true)
+        check("document " + at + ": the head scans at most its bound", head.scanned <= Markdown.DEEP_HEAD_BYTES, true)
+    })
+    check("a deep chain at the top of a large document is called deep from the head", Markdown.deepHead(corpus[0]).deep, true)
+    check("a deep head stops short of the whole text", Markdown.deepHead(corpus[0]).scanned < corpus[0].length, true)
+    check("a chain of 33 quotes is deep and one of 32 is not", Markdown.deepHead(corpus[1]).deep + "/" + Markdown.deepHead(corpus[2]).deep, "true/false")
+    check("33 items are deep and 32 are not", Markdown.deepHead(corpus[3]).deep + "/" + Markdown.deepHead(corpus[4]).deep, "true/false")
+    check("a deep chain only past the bound is deep to the parse and left to it", Markdown.deepHead(corpus[10]).deep + "/" + deepByParse(corpus[10]), "false/true")
+
+    // A big document sends its first blocks ahead once, and they are the first blocks of the whole parse.
+    var longDoc = new Array(400).join("## Section\n\nA paragraph with `code`, **bold** and a [link][ref].\n\n- one\n- two\n\n") + "[ref]: https://example.invalid/ref\n"
+    // The head is serialized when it is sent, as the worker's reply is, so a block changed after that cannot hide from the check.
+    var sent = []
+    var whole = Blocks.blocks(longDoc, dir, chrome, ink, Markdown.HEAD_BLOCKS, function (head) { sent.push(JSON.stringify(head)) })
+    check("a long document sends its head once", sent.length, 1)
+    var sentHead = sent.length === 1 ? JSON.parse(sent[0]) : []
+    check("the head holds exactly the head count", sentHead.length, Markdown.HEAD_BLOCKS)
+    check("the head is the first blocks of the whole parse, a reference defined at the end included", sent.length === 1 ? sent[0] : "", JSON.stringify(whole.slice(0, Markdown.HEAD_BLOCKS)))
+    check("the head resolves a reference defined after it", sent.length === 1 && sent[0].indexOf("example.invalid/ref") >= 0, true)
+    check("the whole parse is unchanged by a head", JSON.stringify(whole), JSON.stringify(Markdown.blocks(longDoc, dir, chrome, ink)))
+    var shortSent = 0
+    Blocks.blocks("# Title\n\nshort\n", dir, chrome, ink, Markdown.HEAD_BLOCKS, function () { shortSent++ })
+    check("a document shorter than the head sends none", shortSent, 0)
+
+    // A deep document's sentinel is the one block the parse answers, so the pane can land it without parsing.
+    check("deepBlocks is what a deep document parses to", JSON.stringify(Markdown.deepBlocks()), JSON.stringify(blocks(chain("> ", 40, "x\n"))))
+
+    // The Source view's chunks: whole lines near the chunk size, none longer than the maximum, and together exactly the text.
+    function chunked(text) {
+        var starts = Markdown.sourceChunkStarts(text)
+        var text2 = ""
+        var longest = 0
+        var endsInNewline = 0
+        for (var i = 0; i < starts.length; i++) {
+            var piece = Markdown.sourceChunk(text, starts, i)
+            longest = Math.max(longest, piece.length)
+            if (i + 1 < starts.length && piece.charAt(piece.length - 1) === "\n")
+                endsInNewline++
+            // A cut at a newline drops it from the piece and a cut inside a line drops nothing.
+            var span = (i + 1 < starts.length ? starts[i + 1] : text.length) - starts[i]
+            text2 += piece + (piece.length < span ? "\n" : "")
+        }
+        return { count: starts.length, longest: longest, endsInNewline: endsInNewline, same: text2 === text }
+    }
+    function lines(n, width, ending) {
+        var line = new Array(width).join("w") + ending
+        return new Array(n + 1).join(line)
+    }
+    var spaced = new Array(60000).join("word ")
+    var sourceCorpus = [["LF lines", lines(500, 100, "\n")], ["CRLF lines", lines(500, 100, "\r\n")], ["no final newline", lines(500, 100, "\n") + "tail"],
+        ["a final newline", lines(500, 100, "\n")], ["blank lines", new Array(3000).join("\n")], ["one 600 KB line without a newline", new Array(600001).join("w")],
+        ["one 300 KB line of words", spaced], ["a long line between short ones", lines(80, 20, "\n") + spaced + "\n" + lines(80, 20, "\n")]]
+    sourceCorpus.forEach(function (c) {
+        var got = chunked(c[1])
+        check(c[0] + ": the chunks are the text again", got.same, true)
+        check(c[0] + ": no chunk is longer than the maximum", got.longest <= Markdown.SOURCE_CHUNK_MAX, true)
+        check(c[0] + ": no chunk but the last ends in a newline it should have dropped", got.endsInNewline, 0)
+    })
+    check("a 600 KB line without a newline is many bounded chunks", chunked(sourceCorpus[5][1]).count > 600000 / Markdown.SOURCE_CHUNK_MAX, true)
+    check("a line of words is cut after a space", Markdown.sourceChunk(spaced, Markdown.sourceChunkStarts(spaced), 0).slice(-1), " ")
+    check("a short text is one chunk", JSON.stringify(Markdown.sourceChunkStarts("a\nb\nc")), "[0]")
+    check("lines of 100 characters cut at the first line end past the chunk size", JSON.stringify(Markdown.sourceChunkStarts(lines(200, 100, "\n"))), "[0,4100,8200,12300]")
+    // A line shorter than the maximum straddling the window is never split: short lines, one long spaceless line, then more.
+    var shortLines = 80
+    var shortWidth = 50
+    var shortHead = lines(shortLines, shortWidth, "\n")
+    var straddleLen = 5000
+    var straddleLine = new Array(straddleLen + 1).join("w")
+    var straddle = shortHead + straddleLine + "\n" + lines(shortLines, shortWidth, "\n")
+    var straddleStarts = Markdown.sourceChunkStarts(straddle)
+    var straddleEnd = shortHead.length + straddleLen
+    var straddleSplit = straddleStarts.filter(function (s) { return s > shortHead.length && s <= straddleEnd })
+    check("a 5000-char line past short lines is kept whole", JSON.stringify(straddleSplit), "[]")
+    var straddleGot = chunked(straddle)
+    check("straddling chunks are the text again", straddleGot.same, true)
+    check("straddling chunks are bounded", straddleGot.longest <= Markdown.SOURCE_CHUNK_MAX, true)
+    // A spaceless line exactly the maximum long ends at its newline, so no chunk starts on that newline.
+    var maxLine = new Array(Markdown.SOURCE_CHUNK_MAX + 1).join("w")
+    var maxText = maxLine + "\n" + lines(shortLines, shortWidth, "\n")
+    var maxStarts = Markdown.sourceChunkStarts(maxText)
+    var maxNl = maxStarts.filter(function (s) { return maxText.charAt(s) === "\n" })
+    check("a max-length line leaves no chunk starting with a newline", JSON.stringify(maxNl), "[]")
+    var maxGot = chunked(maxText)
+    check("max-line chunks are the text again", maxGot.same, true)
+    check("max-line chunks are bounded", maxGot.longest <= Markdown.SOURCE_CHUNK_MAX, true)
+    // An astral run cut at the hard limit never splits a surrogate: one leading char forces the cut mid-pair.
+    var emojiOne = "\uD83D\uDE00"
+    // The surrogate ranges, fixed here so the oracle never reads them from the code under test.
+    var highFirst = 0xD800
+    var highLast = 0xDBFF
+    var lowFirst = 0xDC00
+    var lowLast = 0xDFFF
+    var emojiCount = 5000
+    var emojiRun = "w"
+    for (var e = 0; e < emojiCount; e++) {
+        emojiRun += emojiOne
+    }
+    var emojiStarts = Markdown.sourceChunkStarts(emojiRun)
+    var loneLow = 0
+    var loneHigh = 0
+    for (var c = 0; c < emojiStarts.length; c++) {
+        var emojiPiece = Markdown.sourceChunk(emojiRun, emojiStarts, c)
+        var firstUnit = emojiPiece.charCodeAt(0)
+        var lastUnit = emojiPiece.charCodeAt(emojiPiece.length - 1)
+        if (firstUnit >= lowFirst && firstUnit <= lowLast) {
+            loneLow++
+        }
+        if (lastUnit >= highFirst && lastUnit <= highLast) {
+            loneHigh++
+        }
+    }
+    check("no chunk starts with a low surrogate", loneLow, 0)
+    check("no chunk ends with a high surrogate", loneHigh, 0)
+    var emojiGot = chunked(emojiRun)
+    check("astral chunks are the text again", emojiGot.same, true)
+    check("astral chunks are bounded", emojiGot.longest <= Markdown.SOURCE_CHUNK_MAX, true)
 }

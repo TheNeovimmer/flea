@@ -243,7 +243,18 @@ function writer(state, dir, chrome, ink, pass, shared) {
         }
         return out
     }
-    return { project: project, finish: finish }
+    // The projection that hands onHead the first n blocks once they are written; written blocks are final, so finish starts with them.
+    function headed(n, onHead) {
+        var sent = false
+        return function (event) {
+            project(event)
+            if (!sent && out.length >= n) {
+                sent = true
+                onHead(out.slice(0, n))
+            }
+        }
+    }
+    return { project: project, finish: finish, headed: headed }
 }
 
 function preparedText(lines, state, dir, defs, chrome, ink) {

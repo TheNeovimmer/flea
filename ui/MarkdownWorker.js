@@ -75,7 +75,10 @@ WorkerScript.onMessage = function (msg) {
     var blocks = [];
     var error = '';
     try {
-        blocks = MdBlocks.blocks(msg.source, msg.dir, msg.chrome, msg.ink);
+        // A first parse of a file sends its head ahead, so the first screen draws while the rest is still parsing.
+        blocks = MdBlocks.blocks(msg.source, msg.dir, msg.chrome, msg.ink, msg.head, function (head) {
+            WorkerScript.sendMessage({ seq: msg.seq, blocks: head, error: '', partial: true });
+        });
     } catch (e) {
         error = String(e);
     }

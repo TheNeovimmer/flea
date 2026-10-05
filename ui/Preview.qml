@@ -91,7 +91,7 @@ Item {
     // An interim cache thumbnail shown counts as whole, never as a half-built frame.
     readonly property bool lookReady: !root.active || PreviewSwap.lookReady(root.status, root.isPdf,
         root.pdfItem !== null && root.pdfItem.shownPage >= 0, root.pdfItem !== null && root.pdfItem.failed,
-        root.interimShown)
+        root.interimShown, root.isMarkdown && markdownLoader.item !== null && markdownLoader.item.firstScreen)
     // The cached thumbnail held at open, drawn under the full decode at the final rect; the stamp retires a stale one.
     property string interimThumb: ""
     property string interimStamp: ""
