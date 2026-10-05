@@ -248,6 +248,9 @@ function run(check) {
     check("max-line chunks are bounded", maxGot.longest <= Markdown.SOURCE_CHUNK_MAX, true)
     // An astral run cut at the hard limit never splits a surrogate: one leading char forces the cut mid-pair.
     var emojiOne = "\uD83D\uDE00"
+    // The low surrogate range; the high one is Markdown.js's own HIGH_FIRST..HIGH_LAST.
+    var lowFirst = 0xDC00
+    var lowLast = 0xDFFF
     var emojiCount = 5000
     var emojiRun = "w"
     for (var e = 0; e < emojiCount; e++) {
@@ -260,10 +263,10 @@ function run(check) {
         var emojiPiece = Markdown.sourceChunk(emojiRun, emojiStarts, c)
         var firstUnit = emojiPiece.charCodeAt(0)
         var lastUnit = emojiPiece.charCodeAt(emojiPiece.length - 1)
-        if (firstUnit >= 0xDC00 && firstUnit <= 0xDFFF) {
+        if (firstUnit >= lowFirst && firstUnit <= lowLast) {
             loneLow++
         }
-        if (lastUnit >= 0xD800 && lastUnit <= 0xDBFF) {
+        if (lastUnit >= Markdown.HIGH_FIRST && lastUnit <= Markdown.HIGH_LAST) {
             loneHigh++
         }
     }
