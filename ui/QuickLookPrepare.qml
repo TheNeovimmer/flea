@@ -3,8 +3,7 @@ import Quickshell.Io
 import "js/Markdown.js" as Markdown
 import "js/MarkdownPrepared.js" as Prepared
 
-// A rested cursor on a small regular local Markdown file reads it capped and parses it in the worker into Quick Look's entry.
-// The document's small local pictures are decoded ahead too and held while the cursor rests, so the open draws them in its first frame.
+// A rested cursor on a small local Markdown file prepares Quick Look's entry and holds its small pictures decoded for the first frame.
 Item {
     id: root
 
@@ -25,6 +24,10 @@ Item {
     // The small local pictures the prepared document names, held decoded until the cursor moves, and whether each has finished loading.
     property var pictures: []
     property bool picturesSettled: true
+    // The one stat child sizing them (null when none), and a suite's counts of those started and alive.
+    property var sizer: null
+    property int sizersStarted: 0
+    property int sizersAlive: 0
 
     Timer {
         id: rest
@@ -42,6 +45,7 @@ Item {
 
     function moved() {
         root.seq++
+        root.releaseSizer()
         if (root.pictures.length > 0)
             root.pictures = []
         root.picturesSettled = true
@@ -65,7 +69,16 @@ Item {
         }
     }
 
-    // stat sizes the pictures in one child, so no picture past PICTURE_MAX_BYTES is decoded ahead whatever the document links.
+    // stat sizes the pictures in one child, so none past PICTURE_MAX_BYTES is decoded ahead; the deadline drops a child a hung mount holds.
+    Timer {
+        id: sizerDeadline
+        interval: Prepared.PICTURE_SIZE_DEADLINE_MS
+        onTriggered: {
+            root.releaseSizer()
+            root.picturesSettled = true
+        }
+    }
+
     Component {
         id: sizerComponent
         Process {
@@ -73,17 +86,19 @@ Item {
             property int seq: 0
             property var urls: []
             command: ["stat", "-L", "--printf", "%s\\t%n\\n", "--"].concat(sizer.urls.map(Prepared.pathOfUrl))
+            Component.onCompleted: root.sizersAlive++
+            Component.onDestruction: root.sizersAlive--
             stdout: StdioCollector {
                 onStreamFinished: {
                     root.sized(sizer.seq, sizer.urls, this.text)
-                    sizer.destroy()
+                    if (root.sizer === sizer)
+                        root.releaseSizer()
                 }
             }
         }
     }
 
-    // One held Image per small picture, built as the block builds its own so the open finds it in the pixmap cache, whose key holds
-    // the url, the transform option and whether the fill keeps the aspect: an Image left at Stretch would never be found by a block.
+    // One held Image per picture, built as a block builds its own: the pixmap cache key holds url, transform and fill, so Stretch never hits.
     Repeater {
         id: held
         model: root.pictures
@@ -129,7 +144,7 @@ Item {
         var ink = Prepared.hexOf(Theme.color.foreground)
         var entry = Prepared.take(path, text, dir, chrome, ink)
         if (entry !== null) {
-            root.startPictures(entry)
+            root.startPictures(entry, dir)
             root.preparedPath = path
             return
         }
@@ -150,16 +165,27 @@ Item {
             return
         Prepared.store(a.path, a.text, a.dir, a.chrome, a.ink, reply.blocks)
         root.workerAnswers++
-        root.startPictures(reply.blocks)
+        root.startPictures(reply.blocks, a.dir)
         root.preparedPath = a.path
     }
 
-    function startPictures(blocks) {
-        var urls = Prepared.pictureUrls(blocks, Prepared.PICTURE_LIMIT)
+    function releaseSizer() {
+        sizerDeadline.stop()
+        if (root.sizer !== null)
+            root.sizer.destroy()
+        root.sizer = null
+    }
+
+    function startPictures(blocks, dir) {
+        root.releaseSizer()
+        var urls = Prepared.pictureUrls(blocks, Prepared.PICTURE_LIMIT, dir)
         if (urls.length === 0)
             return
         root.picturesSettled = false
-        sizerComponent.createObject(root, { seq: root.seq, urls: urls }).running = true
+        root.sizersStarted++
+        root.sizer = sizerComponent.createObject(root, { seq: root.seq, urls: urls })
+        root.sizer.running = true
+        sizerDeadline.restart()
     }
 
     // The sizes landed: only a cursor that has not moved holds the pictures that fit.

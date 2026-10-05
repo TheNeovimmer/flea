@@ -22,13 +22,31 @@ function readsInline(row, storageClass, storageKnown) {
 var PICTURE_MAX_BYTES = 262144
 var PICTURE_LIMIT = 8
 var FILE_SCHEME_LENGTH = 7
+// The stat child that sizes the pictures is dropped after this long, so a hung mount holds nothing past it.
+var PICTURE_SIZE_DEADLINE_MS = 1500
 
-// Sample input: blocks [{ type: "image", url: "file:///d/a.png" }, { type: "images", items: [{ url: "file:///d/b%20c.png" }, { url: "file:///d/a.png" }] }, { type: "run" }] answer ["file:///d/a.png", "file:///d/b%20c.png"].
-// The local pictures a parsed document draws at its top level, each once, in reading order, at most limit of them.
-function pictureUrls(blocks, limit) {
+// Sample input: "file:///d/b%20c.png" answers "/d/b c.png"; "file:///d/100%.png" (a stray percent) answers "".
+function pathOfUrl(url) {
+    try {
+        return decodeURIComponent(String(url).slice(FILE_SCHEME_LENGTH))
+    } catch (e) {
+        return ""
+    }
+}
+
+// Sample input: path "/d/img/a.png" in dir "/d" answers true; "/mnt/nas/a.png" and "/d/../e/a.png" answer false.
+// Only a picture under the document's folder shares the storage class readsInline cleared, so a stat never reaches another mount.
+function insideDir(path, dir) {
+    return dir !== "" && path.indexOf(dir + "/") === 0 && path.split("/").indexOf("..") < 0
+}
+
+// Sample input: blocks [{ type: "image", url: "file:///d/a.png" }, { type: "images", items: [{ url: "file:///d/b%20c.png" }, { url: "file:///d/a.png" }] }, { type: "run" }] in dir "/d" answer ["file:///d/a.png", "file:///d/b%20c.png"].
+// The local pictures a parsed document draws at its top level under its own folder, each once, in reading order, at most limit of them.
+function pictureUrls(blocks, limit, dir) {
     var urls = []
     function add(url) {
-        if (typeof url === "string" && url.indexOf("file://") === 0 && urls.length < limit && urls.indexOf(url) < 0)
+        if (typeof url === "string" && url.indexOf("file://") === 0 && urls.length < limit && urls.indexOf(url) < 0
+                && insideDir(pathOfUrl(url), dir))
             urls.push(url)
     }
     for (var i = 0; i < blocks.length; i++) {
@@ -41,11 +59,6 @@ function pictureUrls(blocks, limit) {
         }
     }
     return urls
-}
-
-// Sample input: "file:///d/b%20c.png" answers "/d/b c.png".
-function pathOfUrl(url) {
-    return decodeURIComponent(String(url).slice(FILE_SCHEME_LENGTH))
 }
 
 // Sample input: urls ["file:///d/a.png", "file:///d/big.png", "file:///d/gone.png"] with the stat text "2048\t/d/a.png\n900000\t/d/big.png\n" answer ["file:///d/a.png"].

@@ -12,6 +12,10 @@ ShellRoot {
     readonly property bool columnCase: scenario === "parse-column"
     readonly property bool workerCase: scenario === "parse-worker"
     readonly property bool fallbackCase: scenario === "parse-fallback"
+    readonly property bool clearCase: scenario === "parse-clear"
+    // The size the pane is told; the clear case raises it past the pane's limit.
+    property int mdSize: 200000
+    readonly property int pastLimitSize: 2000000
     property string shownName: workerCase ? "pc-big-a.md" : fallbackCase ? "pc-fb.md" : "pc-a.md"
     readonly property string shownPath: root.dir + "/" + root.shownName
     property int failures: 0
@@ -151,6 +155,26 @@ ShellRoot {
         }
     }
 
+    // A pane that holds a document and moves to an unreadable file, or to one past its limit, shows none of the first file's text.
+    function clearStep() {
+        var h = root.host()
+        if (root.step === 0) {
+            if (!root.landedWithin("open: the first file", h.contentReady && h.rawText === "Alpha text.\n")) return
+            root.shownName = "pc-missing.md"
+            root.step = 1
+        } else if (root.step === 1) {
+            if (!root.landedWithin("move: the unreadable file's failure", h.readFailed)) return
+            root.check("an unreadable file holds no text of the last", h.rawText, "")
+            root.shownName = "pc-a.md"
+            root.step = 2
+        } else if (root.step === 2) {
+            if (!root.landedWithin("move: the first file again", h.contentReady && h.rawText === "Alpha text.\n")) return
+            root.mdSize = root.pastLimitSize
+            root.check("a file past the limit holds no text of the last", h.rawText, "")
+            root.finish()
+        }
+    }
+
     // The fallback path on the scratch ui: the worker never answers, so the recovery parse is the only landing.
     function fallbackStep() {
         var h = root.host()
@@ -224,9 +248,9 @@ ShellRoot {
             id: md
             width: 600
             height: 580
-            active: root.workerCase || root.fallbackCase
+            active: root.workerCase || root.fallbackCase || root.clearCase
             path: root.shownPath
-            size: 200000
+            size: root.mdSize
         }
         Connections {
             target: md
@@ -278,9 +302,10 @@ ShellRoot {
                 return
             }
             var h = root.host()
-            if (root.workerCase || root.fallbackCase) {
+            if (root.workerCase || root.fallbackCase || root.clearCase) {
                 if (root.step < 0) root.step = 0
                 if (root.workerCase) root.workerStep()
+                else if (root.clearCase) root.clearStep()
                 else root.fallbackStep()
                 return
             }

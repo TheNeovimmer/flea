@@ -94,7 +94,7 @@ run_leg() {
     [ -z "${FLEA_CI_SUITE_LOGS:-}" ] || cp "$log" "$FLEA_CI_SUITE_LOGS/quicklook-firstframe-$leg.log" 2>/dev/null
     grep -a 'QLFF \(STEP\|FAIL\|DONE\)' "$log" | sed "s/^/$leg: /"
     # A source compile between the first key and its first step is a unit the idle warm should have held; the trace must show compiles at all.
-    compiles=$(sed 's/\x1b\[[0-9;]*m//g' "$log" | awk '/QLFF KEY 1 /{on=1} /QLFF STEP 1 /{on=0} on && /from disk cache/' | sed 's/.*Error loading //; s/ from disk cache.*//')
+    compiles=$(sed 's/\x1b\[[0-9;]*m//g' "$log" | sed -n '/QLFF KEY 1 /,/QLFF STEP 1 /p' | grep -a 'from disk cache' | sed 's/.*Error loading \(.*\) from disk cache.*/\1/')
     if ! grep -aq 'from disk cache' "$log"; then
         printf 'FAIL quicklook-firstframe: %s leg has no compile trace, so a silent log proves nothing\n' "$leg"
         failures=$((failures + 1))

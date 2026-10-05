@@ -165,6 +165,7 @@ Item {
             root.askParse()
         }
         onLoadFailed: {
+            root.loadedText = ""
             file.blockLoading = false
             root.keepScroll = false
             root.readFailed = true
@@ -188,6 +189,7 @@ Item {
         file.path = want
         // blockLoading gates only text(), so the blocking first read is taken here, in the first frame, not inside a binding.
         if (blocking) root.loadedText = file.text()
+        else if (want === "") root.loadedText = ""
     }
     Component.onCompleted: root.pointFile()
     onTooLargeChanged: root.pointFile()
