@@ -9,6 +9,14 @@ var MATH_INK_MIN_BODY_RATIO = 1.04; // Minimum painted x^2 height relative to th
 var MATH_INK_MAX_BODY_RATIO = 1.25; // Maximum painted x^2 height relative to the body font.
 var FIGURE_GAP_TOLERANCE_PX = 2; // Painted figure gaps may differ from paragraph gaps by this many pixels.
 var BLOCK_GAP_TOLERANCE_PX = 0.5; // Drawn block edges may differ from the token gap by this many pixels.
+var GROUND_R = 16; // The preview ground in the grab; ink is any pixel holding a channel the ground lacks.
+var GROUND_G = 19;
+var GROUND_B = 21;
+
+// A pixel counts as ink when any channel is set and the pixel is not the preview ground.
+function isInk(r, g, b) {
+    return (r || g || b) && !(r === GROUND_R && g === GROUND_G && b === GROUND_B);
+}
 
 function figure(md, index) {
     var block = md.blockItem(index);
@@ -218,7 +226,7 @@ function inkGapError(pixels, width, height, upper, lower, want) {
                 continue;
             var at = (y * width + x) * RGBA_CHANNELS;
             var r = pixels[at], g = pixels[at + 1], b = pixels[at + 2];
-            if ((r || g || b) && !(r === 16 && g === 19 && b === 21))
+            if (isInk(r, g, b))
                 return true;
         }
         return false;

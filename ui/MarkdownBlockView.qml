@@ -24,10 +24,12 @@ Item {
     readonly property var neighbourList: view.siblings !== null ? view.siblings : (view.preview !== null ? view.preview.blockList : null)
     readonly property var nextBlock: neighbourList === null || neighbourList === undefined || view.blockIndex + 1 >= neighbourList.length
         ? null : neighbourList[view.blockIndex + 1]
+    // One canvas margin per mermaid side, FigureWorker.mjs CANVAS_MARGIN.
+    readonly property int canvasMargin: 1
     readonly property int pairTrim: view.block.type === "figure" && nextBlock !== null && nextBlock !== undefined && nextBlock.type === "figure"
-        ? (view.block.kind === "mermaid" ? 1 : 0) + (nextBlock.kind === "mermaid" ? 1 : 0) : 0
+        ? (view.block.kind === "mermaid" ? view.canvasMargin : 0) + (nextBlock.kind === "mermaid" ? view.canvasMargin : 0) : 0
     // Only the drawn block lends its height, and a list or table chunk lies flush by its own negative y.
-    height: (kind.item ? kind.item.height + kind.item.y + view.pictureGap : 0) - view.pairTrim
+    height: kind.item ? kind.item.height + kind.item.y + view.pictureGap - view.pairTrim : 0
 
     // A block builds only the parts its own kind draws, on the view; an empty heading or quote builds none, so it has no height.
     Loader {

@@ -60,7 +60,7 @@ function run(check) {
     check("H10 an onerror attribute never survives on an image", JSON.stringify(blocks('<img src="img/logo.png" onerror="alert(1)">')).indexOf("onerror"), -1)
     check("H12 a block-level raw tag after a paragraph starts its own run", types("Body text.\n\n<div>A div</div>"), "run,run")
     check("H12 a raw table keeps its rows in one run", types("<table>\n<tr>\n<td>x</td>\n</tr>\n</table>"), "run")
-    check("H12 a paragraph after an HTML block stays with it", types('<p align="center"><b>T</b></p>\n\nafter'), "run,run")
+    check("H12 a paragraph after an HTML block is its own run", types('<p align="center"><b>T</b></p>\n\nafter'), "run,run")
     var url = "https://example.com/x"
     var linked = blocks('<p align="center">\n<a href="' + url + '"><img src="img/logo.png" width="64" alt="logo"></a>\n</p>\n\nAfter')
     check("H14 a linked centred logo is an image block then the text", linked.map(function (b) { return b.type }).join(","), "image,run")
