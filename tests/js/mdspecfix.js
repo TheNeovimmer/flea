@@ -172,4 +172,10 @@ function run(check) {
     check("a run of space references inside a line is one raw space", blocks("a" + spaceRef.repeat(floodLength) + "b\n")[0].text, "a b\n")
     check("a run of space references ends with the text", blocks("x" + spaceRef.repeat(floodLength))[0].text, "x")
     check("space and tab references join one run", blocks("x" + spaceRef + "&Tab;&#10;\ny\n")[0].text, "x\ny\n")
+    // Literal spaces beside a run reach the parser too, so only the literal spaces after a line-end run decide a hard break.
+    check("literal spaces before a line-end run are no hard break", blocks("x  " + spaceRef + "\ny\n")[0].text, "x\ny\n")
+    check("one literal space after a line-end run is no hard break", blocks("x" + spaceRef + " \ny\n")[0].text, "x\ny\n")
+    check("two literal spaces after a line-end run are a hard break", blocks("x" + spaceRef + "  \ny\n")[0].text, "x<br />y\n")
+    check("a line-start run swallows the literal spaces after it", blocks(spaceRef + "    code\n")[0].text, "code\n")
+    check("literal and reference spaces alternate into one line-end run", blocks("x " + (spaceRef + " ").repeat(floodLength) + "\ny\n")[0].text, "x\ny\n")
 }

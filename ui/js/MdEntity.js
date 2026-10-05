@@ -2,7 +2,6 @@
 
 // MdEntity: backslash escapes and character references in destinations, info strings and running text, decoded here.
 .import "MdEntityTable.js" as Names
-.import "MdInline.js" as Md
 
 var REPLACEMENT_CHARACTER = 0xfffd
 var MAX_CODE_POINT = 0x10ffff
@@ -69,17 +68,26 @@ function drawnText(text) {
     return text.replace(WHITESPACE_REFERENCE, " ")
 }
 
-// Sample input: "x&#32;&#32;\ny" at 1 answers { text: "", end: 13 } (line end), "x&#32;&#32;y" answers { text: " ", end: 13 }, "&copy;" answers null.
-// Qt drops an entity space, so a run of references that draw a space is one unit: dropped whole where it would open indented code or end a line as a hard break, else one raw space.
+// Sample input: "x  &#32;\ny" at 3 answers { text: "", end: 8, trim: 2 } (line end, two raw spaces go); "x&#32;  \ny" at 1 answers { text: "", end: 6, trim: 0 }; "x&#32;&#32;y" at 1 answers { text: " ", end: 11, trim: 0 }; "&copy;" answers null.
+// A run of space references with the literal spaces inside and after it is one unit: dropped at a line end (the literal spaces after it stay to decide a hard break) and at a line start, else one raw space.
 function spaceRunAt(text, i, out) {
     var end = i
+    var lastReference = i
     var hit = referenceAt(text, end)
     while (hit !== null && drawnText(hit.text) === " ") {
         end = hit.end
+        lastReference = end
+        while (text.charAt(end) === " ")
+            end++
         hit = referenceAt(text, end)
     }
-    if (end === i)
+    if (lastReference === i)
         return null
-    var atLineEnd = end >= text.length || text.charAt(end) === "\n"
-    return { text: atLineEnd || blankLineTail(out) ? "" : " ", end: end }
+    if (end >= text.length || text.charAt(end) === "\n") {
+        var trim = 0
+        while (trim < out.length && out[out.length - 1 - trim] === " ")
+            trim++
+        return { text: "", end: lastReference, trim: trim }
+    }
+    return { text: blankLineTail(out) ? "" : " ", end: end, trim: 0 }
 }

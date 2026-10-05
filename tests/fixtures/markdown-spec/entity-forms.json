@@ -42,6 +42,30 @@
   "html": "<p>x   \ny</p>\n"
  },
  {
+  "example": "literal-spaces-then-run-is-not-a-break",
+  "section": "Entity forms",
+  "markdown": "x  &#32;\ny\n",
+  "html": "<p>x   \ny</p>\n"
+ },
+ {
+  "example": "run-then-one-space-is-not-a-break",
+  "section": "Entity forms",
+  "markdown": "x&#32; \ny\n",
+  "html": "<p>x  \ny</p>\n"
+ },
+ {
+  "example": "run-then-two-spaces-is-a-break",
+  "section": "Entity forms",
+  "markdown": "x&#32;  \ny\n",
+  "html": "<p>x <br />\ny</p>\n"
+ },
+ {
+  "example": "run-then-spaces-is-not-indent",
+  "section": "Entity forms",
+  "markdown": "&#32;    code\n",
+  "html": "<p>     code</p>\n"
+ },
+ {
   "example": "quote-and-list-marks",
   "section": "Entity forms",
   "markdown": "&#62; q\n\n&#45; i\n",

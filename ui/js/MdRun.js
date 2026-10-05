@@ -249,6 +249,7 @@ function parseInline(text, dir, defs, numbers, chrome, ink, tokens, cited, liter
         if (c === "&") {
             var spaces = Ent.spaceRunAt(body, i, out)
             if (spaces !== null) {
+                out.length -= spaces.trim
                 out.push(spaces.text)
                 i = spaces.end
                 continue

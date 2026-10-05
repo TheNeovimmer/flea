@@ -5,6 +5,8 @@ var FENCE_CLOSE = /^ {0,3}(`+|~+)[ \t]*$/
 var QUOTE_MARK = /^ {0,3}> ?/
 // Sample input: "  - ```js" answers ["  - ", ...]; the marker and its spaces are the width the item's lines must keep.
 var ITEM_MARKER = /^( *(?:[-*+]|\d{1,9}[.)]) +)(?=\S)/
+// Sample input: "- - -", "* * *" and "  ___" are thematic breaks, which outrank a list item marker.
+var THEMATIC_BREAK = /^ {0,3}([-*_])(?: *\1){2,} *$/
 // Sample input: "# h", "---" and "***" are blocks that end a paragraph and are not text of one.
 var HEADING_OR_RULE = /^ {0,3}(?:#{1,6}(?: |$)|([-*_])(?: *\1){2,} *$)/
 
@@ -53,7 +55,8 @@ function openerOf(line, items) {
     } else if (top !== null) {
         top.para = false
     }
-    var marker = ITEM_MARKER.exec(rest)
+    var local = top !== null && top.quotes === inner.quotes && !blank && lead >= top.indent ? rest.slice(top.indent) : rest
+    var marker = THEMATIC_BREAK.test(local) ? null : ITEM_MARKER.exec(rest)
     if (marker !== null) {
         items.push({ quotes: inner.quotes, indent: marker[1].length, para: !HEADING_OR_RULE.test(rest.slice(marker[1].length)) })
         return { quotes: inner.quotes, indent: marker[1].length, rest: rest.slice(marker[1].length) }
