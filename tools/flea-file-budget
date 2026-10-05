@@ -82,7 +82,7 @@ tests/columnscost.qml 416
 tests/columnsfolder.qml 399
 tests/quicklook-firstframe.qml 419
 tests/markdown-render.qml 793
-tests/markdown-linearity.qml 638
+tests/markdown-linearity.qml 648
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
 tests/js/status.js 354
@@ -116,7 +116,7 @@ ui/PickerWindow.qml 779
 ui/Preview.qml 669
 ui/PreviewColumn.qml 583
 ui/DeviceMounts.qml 496
-ui/PreviewMarkdown.qml 553
+ui/PreviewMarkdown.qml 559
 ui/Row.qml 482
 ui/SettingsPanel.qml 543
 ui/SettingsRow.qml 409
@@ -133,7 +133,7 @@ ui/js/Focus.js 435
 ui/js/Keymap.js 355
 ui/js/Nav.js 308
 ui/js/Markdown.js 155
-ui/js/MdBlocks.js 365
+ui/js/MdBlocks.js 380
 ui/js/MdLeaf.js 309
 ui/js/MdInline.js 295
 ui/js/Menu.js 454

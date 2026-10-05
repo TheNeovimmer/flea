@@ -331,8 +331,14 @@ Item {
     function landed(messageObject) {
         if (messageObject.seq !== root.parseSeq)
             return
+        // A live worker proves it with messages, so the fallback below fires only after 10 s of none, never for slowness.
+        if (messageObject.ack === true || messageObject.progress === true) {
+            parseFallback.restart()
+            return
+        }
         // The head of a first parse draws the first screen; the parse goes on, and the whole list replaces it when it lands.
         if (messageObject.partial === true) {
+            parseFallback.restart()
             root.settingBlocks = true
             root.blockList = messageObject.blocks
             root.settingBlocks = false
