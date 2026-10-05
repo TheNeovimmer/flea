@@ -75,6 +75,13 @@ function proveGone(root) {
     else root.log("NOBUILD " + step.name + " entry and units ready, no card")
 }
 
+// A move off the rested file drops its prepared entry at once, so a move back waits on a new rest.
+function proveMoved(root) {
+    var step = root.steps[root.step]
+    if (root.prepare.preparedPath !== "") root.fail("a move off " + step.name + " kept the prepared entry " + root.prepare.preparedPath)
+    else root.log("NOBUILD a move off " + step.name + " dropped the prepared entry")
+}
+
 // The first block of the document named by the step: a block left over from the previous file never counts.
 function firstBlock(root) {
     var p = root.pv()

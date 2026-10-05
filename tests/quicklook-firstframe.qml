@@ -360,8 +360,8 @@ ShellRoot {
                     root.finish()
                     return
                 }
-                // The nobuild leg never opens: a rest must hold the entry and the units with no card.
-                if (root.nobuildWanted) { Fresh.proveGone(root); root.next(); return }
+                // The nobuild leg never opens: a rest holds the entry and the units with no card, and a move off drops the entry.
+                if (root.nobuildWanted) { Fresh.proveGone(root); pane.cursorIndex = root.indexOf(step.name) + 1; Fresh.proveMoved(root); root.next(); return }
                 if (step.expect === "capped") {
                     if (root.prepare.readBytes === 0) return
                     root.log("CAPPED reads=" + root.prepare.reads + " bytes=" + root.prepare.readBytes)
