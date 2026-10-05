@@ -2,6 +2,7 @@
 # list: it runs only by name. Opens a markdown fixture in Quick Look rendered, flips to
 # Source and back with r, closes, then shoots the preview column with the file under the
 # cursor. All fixtures and writes stay in its marked sandbox.
+# case_cap_markdown_kinds, below, shoots the other Markdown kinds the same way, also by name only.
 # Figures settle after the preview opens, so the shot waits for them.
 capmarkdown_wait_figures() {
     local figs=""
@@ -238,5 +239,153 @@ PY
     capmarkdown_wait_column_rendered
     shot "cap-markdown-column-after-flip"
     printf 'CAPMARKDOWN quicklook=ok source=ok column=ok column-after-flip=ok\n'
+    kill_flea
+}
+# The 96 by 48 PNG of four colour bands both the README logo and the figures document point at.
+capmarkdownkinds_png_b64='iVBORw0KGgoAAAANSUhEUgAAAGAAAAAwCAIAAABhdOiYAAAAaElEQVR42u3QMQ0AIAwAMIShZEoQwc3NPSe4wsG+fU2qoOOtSWEoECRIkCBBggQJQpCghqDYSUGQIEGCBAkSJEgQggR1BN0MCoIECRIkSJAgQYIQJKgjaMWhIEiQIEGCBAkSJAhBghp8kLRyFsG/bnwAAAAASUVORK5CYII='
+# Quick Look must report rendered within this many polls of this many seconds, the bound the notes case uses.
+capmarkdownkinds_poll_attempts=40
+capmarkdownkinds_poll_seconds=0.1
+# Writes the seven fixture files into the one folder, each text copied from its headless case.
+capmarkdownkinds_fixture() {
+    local dir="$1" width index
+    cat > "$dir/tables.md" <<'MD'
+# Tables
+
+| Left | Centre | Right |
+|:-----|:------:|------:|
+| alpha | **bold** | 10 |
+| beta | `a \| b` | 200 |
+| gamma | [link](https://example.test) | 3000 |
+
+| Only | Two |
+|------|-----|
+| one | two | three dropped |
+| short |
+
+Text after the tables.
+MD
+    cat > "$dir/readme.md" <<'MD'
+<p align="center">
+  <img src="logo.png" width="64" alt="logo">
+</p>
+<h1 align="center">Flea</h1>
+<p align="center"><b>A file manager</b> for <i>Omarchy</i></p>
+
+Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy. Water is H<sub>2</sub>O and area is r<sup>2</sup>.<br>
+A line after a break.
+
+<details open>
+<summary>More</summary>
+
+Hidden body text.
+
+</details>
+
+<script>alert(1)</script>
+<!-- a comment -->
+<div align="right">Right aligned</div>
+MD
+    base64 -d > "$dir/logo.png" <<< "$capmarkdownkinds_png_b64"
+    base64 -d > "$dir/bands.png" <<< "$capmarkdownkinds_png_b64"
+    {
+        printf '<p align="center">\n'
+        for width in 70 96 54 120; do printf '  <a href="https://example.com/%s"><img src="logo.png" width="%s" height="20" alt="b%s"></a>\n' "$width" "$width" "$width"; done
+        printf '</p>\n\n<p>\n'
+        for index in 1 2 3 4 5 6 7 8 9 10 11 12; do printf '  <img src="logo.png" width="110" height="20" alt="w%s">\n' "$index"; done
+        printf '</p>\n'
+    } > "$dir/badges.md"
+    cat > "$dir/nesting.md" <<'MD'
+# Nesting
+
+- one
+  - two
+    - three
+- [ ] task
+  - [x] nested done
+
+1. first
+
+2. loose second
+
+> outer
+>> inner
+>>> innermost
+
+Inline maths $x^2 + y^2$ in a line.
+MD
+    # The entity keeps the first line a paragraph reading "1. ol"; the two pictures show the gap around a picture nested in a list item and in a quote.
+    cat >> "$dir/nesting.md" <<'MD'
+
+&#49;. ol
+
+- an item with a picture
+
+  ![bands](logo.png)
+
+> a quote with a picture
+>
+> ![bands](logo.png)
+
+After the pictures.
+MD
+    printf '# Figures\n\n```mermaid\nflowchart TD\n    A --> B\n```\n\n```mermaid\nsequenceDiagram\n    A->>B: hi\n```\n\n$$x^2$$\n\n```mermaid\nnot a diagram {{{\n```\n\n![bands](bands.png)\n' > "$dir/figures.md"
+}
+# Opens one document in Quick Look and waits until the view reports it rendered.
+capmarkdownkinds_open() {
+    local name="$1" view=""
+    goto_row "$(row_index_of "$name")"
+    key -k Space >/dev/null
+    for _attempt in $(seq 1 "$capmarkdownkinds_poll_attempts"); do [[ "$(ipc previewOpen)" == "true" ]] && break; sleep "$capmarkdownkinds_poll_seconds"; done
+    [[ "$(ipc previewOpen)" == "true" ]] || fail "capmarkdownkinds: Space did not open Quick Look on $name"
+    for _attempt in $(seq 1 "$capmarkdownkinds_poll_attempts"); do
+        view="$(ipc previewMarkdownView)"
+        [[ "$view" == "rendered" ]] && return 0
+        sleep "$capmarkdownkinds_poll_seconds"
+    done
+    fail "capmarkdownkinds: $name never rendered, previewMarkdownView read [$view]"
+}
+# Shoots the open document, then its tail when it is taller than the card, then closes Quick Look.
+# Sample input: previewEndGap answers 0 when the last block and its inset are whole at the top, so nothing scrolls; any other number, -1 included, means the document runs past the card.
+capmarkdownkinds_shoot() {
+    local name="$1" gap
+    settle
+    shot "cap-markdown-kind-${name%.md}"
+    gap="$(ipc previewEndGap)"
+    [[ "$gap" =~ ^-?[0-9]+$ ]] || fail "capmarkdownkinds: previewEndGap answered [$gap] for $name"
+    if (( gap != 0 )); then
+        capmarkdown_pointer document
+        capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
+        capmarkdown_end_fit
+        shot "cap-markdown-kind-${name%.md}-end"
+    fi
+    key -k Escape >/dev/null
+    settle
+    [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdownkinds: Escape did not close Quick Look on $name"
+}
+# Every Markdown kind the stage draws beyond notes.md, shot on the display box: GFM tables, a README in raw HTML, a badge row, nesting with pictures inside blocks, and figures. Cases ql-markdown-tables, -html, -badges, -nesting and -figures in ci/visual/lane/cases.sh draw the same text headless.
+case_cap_markdown_kinds() {
+    local dir="$fixture_root/capmarkdownkinds" figs="" name results=""
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/listing"
+    capmarkdownkinds_fixture "$dir/listing"
+    launch "$dir/listing"
+    wait_listing "$(find "$dir/listing" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+    for name in tables.md readme.md badges.md nesting.md figures.md; do
+        capmarkdownkinds_open "$name"
+        if [[ "$name" == figures.md ]]; then
+            figs="$(capmarkdown_wait_figures)"
+            [[ "$(printf '%s' "$figs" | grep -o 'ready' | wc -l | tr -d ' ')" == "3" ]] || fail "capmarkdownkinds: want 3 ready figures in figures.md, saw [$figs]"
+            [[ "$(printf '%s' "$figs" | grep -o 'failed' | wc -l | tr -d ' ')" == "1" ]] || fail "capmarkdownkinds: want 1 failed figure in figures.md, saw [$figs]"
+        fi
+        capmarkdownkinds_shoot "$name"
+        results+="${name%.md}=ok "
+    done
+    switch_view columns
+    goto_row "$(row_index_of nesting.md)"
+    settle
+    capmarkdown_wait_column_rendered
+    shot "cap-markdown-kind-column-nesting"
+    printf 'CAPMARKDOWNKINDS %scolumn-nesting=ok\n' "$results"
     kill_flea
 }

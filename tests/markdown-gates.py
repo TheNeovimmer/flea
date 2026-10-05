@@ -77,8 +77,9 @@ opened=false
 sandbox_scratch() { mkdir -p "$1"; }
 launch() { :; }
 wait_listing() { :; }
-goto_row() { :; }
-row_index_of() { echo 0; }
+current_row=""
+goto_row() { current_row="$1"; }
+row_index_of() { echo "$1"; }
 settle() { :; }
 shot() { printf 'SHOT %s\\n' "$1"; }
 switch_view() { :; }
@@ -126,26 +127,27 @@ fail() {
 key() {
     case "$*" in
         "-k Tab") [ -n "${MD_GATE_TAB_DEAD:-}" ] || { if $focused; then focused=false; else focused=true; fi; } ;;
-        "-k Space") opened=true ;;
-        "-k Escape") opened=false ;;
+        "-k Space") [ -n "${MD_GATE_SPACE_DEAD:-}" ] || { opened=true; scroll_y=0; } ;;
+        "-k Escape") [ -n "${MD_GATE_ESC_DEAD:-}" ] || opened=false ;;
     esac
 }
 ipc() {
     case "$1" in
         previewOpen) echo "$opened" ;;
-        previewFigures) echo '1=ready,2=ready,3=ready,4=ready,5=failed' ;;
+        previewFigures) echo "${MD_GATE_FIGURES:-1=ready,2=ready,3=ready,4=ready,5=failed}" ;;
+        previewMarkdownView) echo "${MD_GATE_PREVIEW_VIEW:-rendered}" ;;
         columnMarkdownView) echo "$MD_GATE_COLUMN_VIEW" ;;
         previewSurfaceRect) echo '40 40 700 500' ;;
         chromeHeight) echo 20 ;;
         previewCloseState) if [ -n "${MD_GATE_NO_CENTRE:-}" ]; then printf '{"hovered":%s,"pressed":%s,"focused":%s}\\n' "$hit" "$held" "$focused"; else printf '{"hovered":%s,"pressed":%s,"focused":%s,"centre":"%s 50"}\\n' "$hit" "$held" "${MD_GATE_FOCUS_STUCK:-$focused}" "${MD_GATE_CENTRE_X:-$MD_GATE_CLOSE_X}"; fi ;;
-        previewEndGap) if [ "$scroll_y" -ge "$end_reach" ]; then echo "${MD_GATE_END_CUT:-0}"; else echo -1; fi ;;
+        previewEndGap) if [[ " ${MD_GATE_FIT:-} " == *" $current_row "* ]]; then echo 0; elif [ "$scroll_y" -ge "$end_reach" ]; then echo "${MD_GATE_END_CUT:-0}"; else echo -1; fi ;;
         previewScrollY) echo "$scroll_y" ;;
     esac
 }
 . "$MD_GATE_CAPTURE"
 # The stub answers at once, so a refused hover or press needs only one second of its deadline.
 capmarkdown_close_wait_s=1
-case_cap_markdown
+${MD_GATE_CASE:-case_cap_markdown}
 ''')
     env = dict(os.environ, MD_GATE_FIXTURE=str(fixture), MD_GATE_CAPTURE=str(REPO / "tests/ui-captures-markdown.sh"),
                MD_GATE_CLOSE_X="714")
@@ -179,6 +181,47 @@ case_cap_markdown
     refusal({"MD_GATE_END_CUT": "80"}, "capmarkdown: the last block is cut at the end of the document", "mdfid N1 a picture that grew below the end is refused")
     refusal({"MD_GATE_TAB_DEAD": "1"}, "capmarkdown: the close button never reported focused=true", "mdfid N2 a Tab that never reaches the close mark is refused")
     refusal({"MD_GATE_FOCUS_STUCK": "true"}, "capmarkdown: the close button never reported focused=false", "mdfid N2 a close mark focused at rest is refused")
+
+    # The kinds case shoots five documents and the nested column, each shot waiting on its own proof; tables.md standing for the one that fits the card.
+    kinds = ["tables", "readme", "badges", "nesting", "figures"]
+
+    def kinds_run(extra):
+        return subprocess.run(["/bin/bash", str(capture)], env=dict(env, MD_GATE_CASE="case_cap_markdown_kinds", **extra), text=True,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=PROBE_TIMEOUT_SECONDS)
+
+    def kinds_refusal(extra, text, label):
+        result = kinds_run(extra)
+        check(result.returncode != 0 and ("REFUSED " + text) in result.stdout and "CAPMARKDOWNKINDS" not in result.stdout, label)
+
+    result = kinds_run({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed"})
+    shots = [line.split()[1] for line in result.stdout.splitlines() if line.startswith("SHOT ")]
+    want = ["cap-markdown-kind-%s%s" % (name, tail) for name in kinds for tail in ("", "-end")] + ["cap-markdown-kind-column-nesting"]
+    check(result.returncode == 0 and shots == want
+          and "CAPMARKDOWNKINDS tables=ok readme=ok badges=ok nesting=ok figures=ok column-nesting=ok" in result.stdout,
+          "capmd the kinds case shoots each document, its end and the nested column in order")
+    result = kinds_run({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed", "MD_GATE_FIT": "tables.md"})
+    shots = [line.split()[1] for line in result.stdout.splitlines() if line.startswith("SHOT ")]
+    check(result.returncode == 0 and "cap-markdown-kind-tables" in shots and "cap-markdown-kind-tables-end" not in shots
+          and "cap-markdown-kind-readme-end" in shots, "capmd a document that fits the card gets no end shot")
+    listing = sorted(path.name for path in (fixture / "capmarkdownkinds" / "listing").iterdir())
+    check(listing == ["badges.md", "bands.png", "figures.md", "logo.png", "nesting.md", "readme.md", "tables.md"], "capmd the kinds fixture holds the seven files")
+    nesting = (fixture / "capmarkdownkinds" / "listing" / "nesting.md").read_text()
+    check(nesting.endswith("\n&#49;. ol\n\n- an item with a picture\n\n  ![bands](logo.png)\n\n> a quote with a picture\n>\n> ![bands](logo.png)\n\nAfter the pictures.\n")
+          and "Inline maths $x^2 + y^2$ in a line." in nesting, "capmd nesting.md is the board text with the picture-in-block tail")
+    check("| Left | Centre | Right |" in (fixture / "capmarkdownkinds" / "listing" / "tables.md").read_text()
+          and (fixture / "capmarkdownkinds" / "listing" / "badges.md").read_text().count("<img") == 16
+          and '<div align="right">' in (fixture / "capmarkdownkinds" / "listing" / "readme.md").read_text(), "capmd tables, badges and readme carry their board text")
+    kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=ready,5=failed"}, "capmarkdownkinds: want 3 ready figures", "capmd a figures document with four ready is refused")
+    kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready"}, "capmarkdownkinds: want 1 failed figure", "capmd a figures document with no failed figure is refused")
+    kinds_refusal({"MD_GATE_SPACE_DEAD": "1"}, "capmarkdownkinds: Space did not open Quick Look on tables.md", "capmd a Space that never opens Quick Look is refused")
+    kinds_refusal({"MD_GATE_ESC_DEAD": "1"}, "capmarkdownkinds: Escape did not close Quick Look on tables.md", "capmd an Escape that never closes Quick Look is refused")
+    kinds_refusal({"MD_GATE_PREVIEW_VIEW": "source"}, "capmarkdownkinds: tables.md never rendered", "capmd a Quick Look that never renders is refused")
+    kinds_refusal({"MD_GATE_END_CUT": "80", "MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed"}, "capmarkdown: the last block is cut at the end of the document", "capmd a picture that grew below the end is refused")
+    env["MD_GATE_COLUMN_VIEW"] = "source"
+    result = kinds_run({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed"})
+    check(result.returncode != 0 and "REFUSED capmarkdown: column Markdown never rendered" in result.stdout
+          and "cap-markdown-kind-column-nesting" not in result.stdout and "CAPMARKDOWNKINDS" not in result.stdout,
+          "capmd a Source column is refused before the nesting shot")
 
 print(f"MARKDOWN_GATES {checks} checks, {failures} failed")
 raise SystemExit(1 if failures else 0)
