@@ -75,6 +75,7 @@ ShellRoot {
             onPaint: if (shell.armed) shell.analyze(getContext("2d"))
         }
     }
+    // Sample input: '<path class="edge" d="M10,20 L30,40"/>' answers { start: { x: 10, y: 20 }, end: { x: 30, y: 40 } }; an svg with no edge answers null.
     function edge(svg) {
         var found = svg.match(/<(?:polyline|path)\b[^>]*class="(?:edge|class-relationship)"[^>]*\s(?:points|d)="([^"]+)"/)
         var points = found ? found[1].replace(/[ML]/g, " ").trim().split(/[\s,]+/).map(Number) : []
@@ -82,6 +83,7 @@ ShellRoot {
             return null
         return { start: { x: points[0], y: points[1] }, end: { x: points[points.length - 2], y: points[points.length - 1] } }
     }
+    // Sample input: a figure whose svg reads viewBox="0 0 200 100", drawn 400 by 200, reads point (10, 20) at 20, 40 past its corner.
     // The accent pixels within markRadius of an edge end: what is left of a mark once the node drawn over it has hidden its base.
     function markInk(pixels, fig, point) {
         var at = fig.mapToItem(grab, 0, 0)
