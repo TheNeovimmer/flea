@@ -21,6 +21,8 @@ ShellRoot {
     property bool on: false
     property int round: 0
     property int ticks: 0
+    // Rounds switched off after the parse landed, so the list was building delegates; none would mean nothing was torn down mid-build.
+    property int builtRounds: 0
 
     // The board's text size and palette, so the blocks lay out as they do on the card.
     readonly property string palette: 'background = "#1a1b26"\nforeground = "#a9b1d6"\nbright_foreground = "#c0caf5"\n'
@@ -35,6 +37,7 @@ ShellRoot {
         color: "#101315"
 
         Loader {
+            id: loader
             anchors.fill: parent
             active: shell.on
             source: "flea/PreviewMarkdown.qml"
@@ -55,14 +58,20 @@ ShellRoot {
         onTriggered: {
             shell.ticks++
             if (shell.round >= shell.rounds) {
-                shell.log(shell.rounds + " rounds")
+                if (shell.builtRounds > 0)
+                    shell.log(shell.rounds + " rounds, " + shell.builtRounds + " torn down with a parsed list")
+                else
+                    shell.log("FAIL no round tore down a parsed list, so no build was ever cut short")
                 shell.quit()
                 return
             }
             if (shell.ticks >= (shell.on ? 1 + shell.round % shell.holdSpread : shell.offTicks)) {
                 shell.ticks = 0
-                if (shell.on)
+                if (shell.on) {
                     shell.round++
+                    if (loader.item !== null && loader.item.blockList.length > 0)
+                        shell.builtRounds++
+                }
                 shell.on = !shell.on
             }
         }
