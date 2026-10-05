@@ -127,8 +127,8 @@ fail() {
 key() {
     case "$*" in
         "-k Tab") [ -n "${MD_GATE_TAB_DEAD:-}" ] || { if $focused; then focused=false; else focused=true; fi; } ;;
-        "-k Space") opened=true; scroll_y=0 ;;
-        "-k Escape") opened=false ;;
+        "-k Space") [ -n "${MD_GATE_SPACE_DEAD:-}" ] || { opened=true; scroll_y=0; } ;;
+        "-k Escape") [ -n "${MD_GATE_ESC_DEAD:-}" ] || opened=false ;;
     esac
 }
 ipc() {
@@ -212,11 +212,16 @@ ${MD_GATE_CASE:-case_cap_markdown}
           and (fixture / "capmarkdownkinds" / "listing" / "badges.md").read_text().count("<img") == 16
           and '<div align="right">' in (fixture / "capmarkdownkinds" / "listing" / "readme.md").read_text(), "capmd tables, badges and readme carry their board text")
     kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=ready,5=failed"}, "capmarkdownkinds: want 3 ready figures", "capmd a figures document with four ready is refused")
-    kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=ready"}, "capmarkdownkinds: want 3 ready figures", "capmd a figures document with no failed figure is refused")
+    kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready"}, "capmarkdownkinds: want 1 failed figure", "capmd a figures document with no failed figure is refused")
+    kinds_refusal({"MD_GATE_SPACE_DEAD": "1"}, "capmarkdownkinds: Space did not open Quick Look on tables.md", "capmd a Space that never opens Quick Look is refused")
+    kinds_refusal({"MD_GATE_ESC_DEAD": "1"}, "capmarkdownkinds: Escape did not close Quick Look on tables.md", "capmd an Escape that never closes Quick Look is refused")
     kinds_refusal({"MD_GATE_PREVIEW_VIEW": "source"}, "capmarkdownkinds: tables.md never rendered", "capmd a Quick Look that never renders is refused")
     kinds_refusal({"MD_GATE_END_CUT": "80", "MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed"}, "capmarkdown: the last block is cut at the end of the document", "capmd a picture that grew below the end is refused")
     env["MD_GATE_COLUMN_VIEW"] = "source"
-    kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed"}, "capmarkdown: column Markdown never rendered", "capmd a Source column is refused before the nesting shot")
+    result = kinds_run({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed"})
+    check(result.returncode != 0 and "REFUSED capmarkdown: column Markdown never rendered" in result.stdout
+          and "cap-markdown-kind-column-nesting" not in result.stdout and "CAPMARKDOWNKINDS" not in result.stdout,
+          "capmd a Source column is refused before the nesting shot")
 
 print(f"MARKDOWN_GATES {checks} checks, {failures} failed")
 raise SystemExit(1 if failures else 0)

@@ -241,7 +241,6 @@ PY
     printf 'CAPMARKDOWN quicklook=ok source=ok column=ok column-after-flip=ok\n'
     kill_flea
 }
-# Every Markdown kind the stage draws beyond notes.md, shot on the display box: GFM tables, a README in raw HTML, a badge row, nesting with pictures inside blocks, and figures. Cases ql-markdown-tables, -html, -badges, -nesting and -figures in ci/visual/lane/cases.sh draw the same text headless.
 # The 96 by 48 PNG of four colour bands both the README logo and the figures document point at.
 capmarkdownkinds_png_b64='iVBORw0KGgoAAAANSUhEUgAAAGAAAAAwCAIAAABhdOiYAAAAaElEQVR42u3QMQ0AIAwAMIShZEoQwc3NPSe4wsG+fU2qoOOtSWEoECRIkCBBggQJQpCghqDYSUGQIEGCBAkSJEgQggR1BN0MCoIECRIkSJAgQYIQJKgjaMWhIEiQIEGCBAkSJAhBghp8kLRyFsG/bnwAAAAASUVORK5CYII='
 # Quick Look must report rendered within this many polls of this many seconds, the bound the notes case uses.
@@ -364,6 +363,7 @@ capmarkdownkinds_shoot() {
     settle
     [[ "$(ipc previewOpen)" == "false" ]] || fail "capmarkdownkinds: Escape did not close Quick Look on $name"
 }
+# Every Markdown kind the stage draws beyond notes.md, shot on the display box: GFM tables, a README in raw HTML, a badge row, nesting with pictures inside blocks, and figures. Cases ql-markdown-tables, -html, -badges, -nesting and -figures in ci/visual/lane/cases.sh draw the same text headless.
 case_cap_markdown_kinds() {
     local dir="$fixture_root/capmarkdownkinds" figs="" name results=""
     sandbox_scratch "$dir"
