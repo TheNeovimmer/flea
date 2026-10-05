@@ -54,6 +54,7 @@ function run(check) {
     check("a heading with a second picture after the first stays in its run", twoLogos.every(function (b) { return b.type !== "heading" }) && noPictureInHeading(twoLogos), true)
     var markdownLogo = blocks('<h1>Flea ![logo](logo.png)</h1>')
     check("a heading holding a Markdown image stays in its run", markdownLogo.every(function (b) { return b.type !== "heading" }) && noPictureInHeading(markdownLogo), true)
+    check("a heading whose text only has a bang bracket is still a heading", blocks('<h1>Wow![beta]</h1>').map(function (b) { return b.type }).join(), "heading")
 
     function head(line) { return HtmlBlock.htmlHeading(line) }
     check("two headings on one line are no heading", head("<h1>a</h1><h1>b</h1>"), null)

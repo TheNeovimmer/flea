@@ -5,8 +5,8 @@
 .import "MdHtmlImage.js" as HtmlImage
 .import "MdHtmlBlock.js" as HtmlBlock
 
-// Sample input: '<img src="a.png">', '<IMG src=a.png>' and '![logo](a.png)' hold a picture; 'Flea' and '<imgs>' hold none.
-var PICTURE_TAG = /<img\b|!\[/i
+// Sample input: '<img src="a.png">', '<IMG src=a.png>' and '![logo](a.png)' hold a picture; 'Flea', '<imgs>' and 'Wow![beta]' hold none.
+var PICTURE_TAG = /<img\b|!\[[^\]]*\]\(/i
 // Sample input: a heading of 'Flea' lifts; one of '<img src="logo.png" width="120">Flea' lifts its picture out; 'Flea <img src="logo.png">' or a right aligned picture heading does not.
 // A heading whose picture the lift cannot take stays whole in its run, where the picture path sizes it, as no heading text holds a picture.
 function liftable(head, dir) {
