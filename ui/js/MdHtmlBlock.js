@@ -246,3 +246,43 @@ function separateBlocks(lines) {
     }
     return out
 }
+
+// The six heading levels by tag name, so an HTML heading maps to its Markdown level.
+var HEADING_LEVEL = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 }
+// The shortest heading line that holds text, "<h1>x</h1>": anything shorter is never one.
+var HEADING_SHORTEST = 10
+// Sample input: '<h1 align="center">Flea</h1>' answers level 1 with centre and inner Flea; '<h2>x</h2> tail' answers null.
+function htmlHeading(line) {
+    var text = String(line).trim()
+    if (text.length < HEADING_SHORTEST)
+        return null
+    var open = MdHtml.readTag(text, 0, null)
+    if (open === null || open.end <= 0)
+        return null
+    var head = MdHtml.tagHead(open.tag)
+    var level = HEADING_LEVEL[head.name]
+    if (level === undefined || head.closing)
+        return null
+    var rest = text.slice(open.end)
+    var lower = asciiLower(rest)
+    var closeName = "</h" + level
+    var closeAt = lower.lastIndexOf(closeName)
+    if (closeAt < 0)
+        return null
+    var close = MdHtml.readTag(text, open.end + closeAt, null)
+    if (close === null || close.end !== text.length)
+        return null
+    var closeHead = MdHtml.tagHead(close.tag)
+    if (closeHead.name !== head.name || !closeHead.closing)
+        return null
+    var inner = rest.slice(0, closeAt)
+    var align = null
+    for (var i = 0; i < head.attributes.length; i++) {
+        if (head.attributes[i].name === "align" && head.attributes[i].value !== null) {
+            var seen = head.attributes[i].value.toLowerCase()
+            if (seen === "center" || seen === "right")
+                align = seen
+        }
+    }
+    return { level: level, align: align, inner: inner }
+}

@@ -144,10 +144,10 @@ Item {
             "a change on a created figure requests=" + FigureService.requests.length + ", want 1 carrying #555555");
         probe.check((FigureService.requests[0].advances || []).length === 0 && (FigureService.requests[0].boldAdvances || []).length === 0, "a formula request carries no advance table");
         FigureService.done(figure.ticket, "", "inline render failed");
-        var gap = Theme.spacing.gap;
-        var want = measure.implicitWidth + probe.fenceSides * gap;
+        var fencePadX = Math.round(12 * figure.bodyPx / 14);
+        var want = measure.implicitWidth + probe.fenceSides * fencePadX;
         probe.check(figure.failed && measure.implicitWidth > 0 && figure.implicitWidth === want,
-            "failed inline implicitWidth=" + figure.implicitWidth + ", want " + want + " (text " + measure.implicitWidth + " plus two gaps of " + gap + ")");
+            "failed inline implicitWidth=" + figure.implicitWidth + ", want " + want + " (text " + measure.implicitWidth + " plus two fence pads of " + fencePadX + ")");
         FigureService.requests = [];
         probe.diagramArmed = true;
         diagram.askArmed = true;

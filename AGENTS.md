@@ -3506,6 +3506,8 @@ mx2 renders Markdown maths and Mermaid in a sandboxed quickjs-ng helper, each re
 
 The columns-watch work records two ceilings, each re-derived with `wc -l` at the commit that recorded it: `ui/Ipc.qml` 880 to 882 for the read-only `columnNames` and `columnPeekNames` readers, and `ui/ColumnsArea.qml` 483 to 491 for the `drawnNames` and `peekNames` functions behind them, which the native `colwatch` case (`tests/ui-colwatch.sh`, ui:colwatch) reads to see a side column's rows. The in-flight return fix (`ask` gains `rearm`, ask counts replace the ask set in `ui/js/Columns.js`, now 292 lines) moves no ceiling: `ui/ColumnsArea.qml` stays 491. Global limits and all checks remain intact.
 
+mdfid2 records one ceiling, re-derived with `wc -l`: `ui/js/MdDocument.js` 299 to 311 for the HTML heading route (the one heading check with its flush, block and align lines).
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.

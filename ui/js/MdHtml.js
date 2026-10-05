@@ -210,8 +210,14 @@ function attrKept(name, value, tagName) {
 }
 
 // The opening of an inline code chip; an unusable chrome leaves a plain code tag.
+// U+202F narrow no-break space, about 4 px at body 14, pads the chip inside its background.
+var CHIP_PAD_CODE = 8239
+var CHIP_PAD = String.fromCharCode(CHIP_PAD_CODE)
 function chipOpen(chrome) {
-    return CHROME_PATTERN.test(String(chrome || "")) ? '<code style="background-color:' + chrome + '">' : "<code>"
+    return CHROME_PATTERN.test(String(chrome || "")) ? '<code style="background-color:' + chrome + '">' + CHIP_PAD : "<code>"
+}
+function chipClose(chrome) {
+    return CHROME_PATTERN.test(String(chrome || "")) ? CHIP_PAD + "</code>" : "</code>"
 }
 
 function escapeAttr(value) {
@@ -238,7 +244,7 @@ function sanitizeTag(tag, dir, tokens, chrome) {
         return { emit: head.closing ? "</b>" : "<b>" + DISCLOSURE_OPEN + " ", drop: null }
     // kbd and code are the inline code chip, never a bare tag.
     if (name === "kbd" || name === "code")
-        return { emit: head.closing ? "</code>" : chipOpen(chrome), drop: null }
+        return { emit: head.closing ? chipClose(chrome) : chipOpen(chrome), drop: null }
     if (head.closing)
         return { emit: "</" + name + ">", drop: null }
     if (!head.validAttrs)

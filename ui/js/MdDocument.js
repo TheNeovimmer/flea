@@ -103,6 +103,18 @@ function writer(state, dir, chrome, ink, pass, shared) {
                     plain.push(run[i])
                 continue
             }
+            // An HTML heading draws with the Markdown heading recipe for its level.
+            var htmlHead = HtmlBlock.htmlHeading(run[i])
+            if (htmlHead !== null) {
+                pushRun(plain)
+                plain = []
+                var headText = inlineOf(Leaf.headingSafe(htmlHead.inner))
+                var headBlock = { type: "heading", level: htmlHead.level, text: headText }
+                if (htmlHead.align !== null)
+                    headBlock.align = htmlHead.align
+                out.push(headBlock)
+                continue
+            }
             var solo = (i === 0 || run[i - 1].trim().length === 0)
                 && (i + 1 === run.length || run[i + 1].trim().length === 0)
             var image = solo ? Leaf.standaloneImage(run[i], dir, state.defs) : null

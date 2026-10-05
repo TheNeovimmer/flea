@@ -142,6 +142,8 @@ ipc() {
         previewCloseState) if [ -n "${MD_GATE_NO_CENTRE:-}" ]; then printf '{"hovered":%s,"pressed":%s,"focused":%s}\\n' "$hit" "$held" "$focused"; else printf '{"hovered":%s,"pressed":%s,"focused":%s,"centre":"%s 50"}\\n' "$hit" "$held" "${MD_GATE_FOCUS_STUCK:-$focused}" "${MD_GATE_CENTRE_X:-$MD_GATE_CLOSE_X}"; fi ;;
         previewEndGap) if [[ " ${MD_GATE_FIT:-} " == *" $current_row "* ]]; then echo 0; elif [ "$scroll_y" -ge "$end_reach" ]; then echo "${MD_GATE_END_CUT:-0}"; else echo -1; fi ;;
         previewScrollY) echo "$scroll_y" ;;
+        viewContentY) echo "$scroll_y" ;;
+        viewEndY) echo 0 ;;
     esac
 }
 . "$MD_GATE_CAPTURE"
@@ -195,7 +197,7 @@ ${MD_GATE_CASE:-case_cap_markdown}
 
     result = kinds_run({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=failed"})
     shots = [line.split()[1] for line in result.stdout.splitlines() if line.startswith("SHOT ")]
-    want = ["cap-markdown-kind-%s%s" % (name, tail) for name in kinds for tail in ("", "-end")] + ["cap-markdown-kind-column-nesting"]
+    want = ["cap-markdown-kind-%s%s" % (name, tail) for name in kinds for tail in ("", "-end")] + ["cap-markdown-kind-column-readme", "cap-markdown-kind-column-badges", "cap-markdown-kind-column-figures", "cap-markdown-kind-column-nesting"]
     check(result.returncode == 0 and shots == want
           and "CAPMARKDOWNKINDS tables=ok readme=ok badges=ok nesting=ok figures=ok column-nesting=ok" in result.stdout,
           "capmd the kinds case shoots each document, its end and the nested column in order")
@@ -209,7 +211,7 @@ ${MD_GATE_CASE:-case_cap_markdown}
     check(nesting.endswith("\n&#49;. ol\n\n- an item with a picture\n\n  ![bands](logo.png)\n\n> a quote with a picture\n>\n> ![bands](logo.png)\n\nAfter the pictures.\n")
           and "Inline maths $x^2 + y^2$ in a line." in nesting, "capmd nesting.md is the board text with the picture-in-block tail")
     check("| Left | Centre | Right |" in (fixture / "capmarkdownkinds" / "listing" / "tables.md").read_text()
-          and (fixture / "capmarkdownkinds" / "listing" / "badges.md").read_text().count("<img") == 16
+          and (fixture / "capmarkdownkinds" / "listing" / "badges.md").read_text().count("<img") == 24
           and '<div align="right">' in (fixture / "capmarkdownkinds" / "listing" / "readme.md").read_text(), "capmd tables, badges and readme carry their board text")
     kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready,4=ready,5=failed"}, "capmarkdownkinds: want 3 ready figures", "capmd a figures document with four ready is refused")
     kinds_refusal({"MD_GATE_FIGURES": "1=ready,2=ready,3=ready"}, "capmarkdownkinds: want 1 failed figure", "capmd a figures document with no failed figure is refused")

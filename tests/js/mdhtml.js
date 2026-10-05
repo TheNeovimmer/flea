@@ -261,4 +261,17 @@ function run(check) {
     check("F16 title accepted", Blocks.collectReferences('[foo]:\nbar "title"').defs.foo, 'bar')
     check("F17 four spaces", Blocks.collectReferences("[^1]: a\n    more").notes['1'].text, 'a\nmore')
     check("F17 eight spaces", Blocks.collectReferences("[^1]: a\n        more").notes['1'].text, 'a\nmore')
+    var htmlH1 = Markdown.blocks('<h1 align="center">Flea</h1>', dir, "#181825", ink)[0]
+    var mdH1 = Markdown.blocks("# Flea", dir, "#181825", ink)[0]
+    check("mdfid2 HTML h1 is a heading block", htmlH1.type, "heading")
+    check("mdfid2 HTML h1 level is 1", htmlH1.level, 1)
+    check("mdfid2 HTML h1 text matches Markdown h1", htmlH1.text, mdH1.text)
+    check("mdfid2 HTML h1 keeps its centre", htmlH1.align, "center")
+    var htmlH2 = Markdown.blocks("<h2>Sub</h2>", dir, "#181825", ink)[0]
+    var mdH2 = Markdown.blocks("## Sub", dir, "#181825", ink)[0]
+    check("mdfid2 HTML h2 level is 2", htmlH2.level, 2)
+    check("mdfid2 HTML h2 text matches Markdown h2", htmlH2.text, mdH2.text)
+    // U+202F narrow no-break space, about 4 px at body 14, pads the chip inside its background.
+    var chipPad = "\u202F"
+    check("mdfid2 code chip pads both sides", Markdown.prepare("Use `x` here.", dir, undefined, "#181825", ink).indexOf(chipPad + "x" + chipPad) >= 0, true)
 }

@@ -40,8 +40,8 @@ function run(check) {
     check("H5 a picture never reaches the importer as HTML", runs('a <picture><source srcset="img/logo.png"><img src="img/logo.png"></picture> b').indexOf("<img"), -1)
     var keys = runs("Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy.")
     check("H6 kbd draws as the inline code chip", keys,
-        'Press <code style="background-color:#181825">Ctrl</code>+<code style="background-color:#181825">C</code> to copy.')
-    check("H6 a raw code tag wears the same chip", runs("a <code>x</code> b"), 'a <code style="background-color:#181825">x</code> b')
+        'Press <code style="background-color:#181825">\u202FCtrl\u202F</code>+<code style="background-color:#181825">\u202FC\u202F</code> to copy.')
+    check("H6 a raw code tag wears the same chip", runs("a <code>x</code> b"), 'a <code style="background-color:#181825">\u202Fx\u202F</code> b')
     check("H6 without chrome kbd stays a plain code tag", runs("a <kbd>x</kbd> b", ""), "a <code>x</code> b")
     check("H6 a hostile chrome never reaches the tag", runs("a <kbd>x</kbd> b", 'red;"><b>'), "a <code>x</code> b")
     check("H7 sub and sup pass through", runs("H<sub>2</sub>O and mc<sup>2</sup>."), "H<sub>2</sub>O and mc<sup>2</sup>.")
@@ -88,15 +88,16 @@ function run(check) {
     check("H15 the stray closer is drawn once, balanced with its centring wrapper", runs(shared.join("\n")), '<p align="center"><b>Name</b></p>|After')
     check("H16 an inline image in a paragraph stays inline", types('text <a href="' + url + '"><img src="img/logo.png"></a> tail'), "run")
     check("H4 a width past the pane is kept for the pane to clamp", at(blocks('<img src="img/logo.png" width="5000">'), 0).width, 5000)
-    check("H17 a heading and a paragraph on adjacent lines are two runs", types('<h1 align="center">Flea</h1>\n<p align="center"><b>A file manager</b> for <i>Omarchy</i></p>'), "run,run")
-    check("H17 each keeps its own centring", runs('<h1 align="center">Flea</h1>\n<p align="center">x</p>'), '<h1 align="center">Flea</h1>|<p align="center">x</p>')
+    check("H17 a heading and a paragraph on adjacent lines are heading and run", types('<h1 align="center">Flea</h1>\n<p align="center"><b>A file manager</b> for <i>Omarchy</i></p>'), "heading,run")
+    var h17 = blocks('<h1 align="center">Flea</h1>\n<p align="center">x</p>')
+    check("H17 each keeps its own centring", at(h17, 0).align + "|" + at(h17, 1).text, "center|<p align=\"center\">x</p>")
     check("H17 nested blocks inside one div stay one run", types("<div>\n<p>a</p>\n<p>b</p>\n</div>"), "run")
     check("H17 a details summary line stays with its details", types("<details>\n<summary>S</summary>\n\nbody\n\n</details>"), "run")
     check("H18 a soft break after br collapses", runs("one<br>\ntwo"), "one<br />two")
     check("H18 a break before a blank line keeps the paragraph break", runs("one<br>\n\ntwo"), "one<br />|two")
     check("H13 a lone angle bracket stays text", runs("1 < 2 and <3 here"), "1 &#60; 2 and &#60;3 here")
     check("H13 HTML in a code span stays literal", runs("use `<b>x</b>` here"),
-        'use <code style="background-color:#181825">&#60;b&#62;x&#60;&#47;b&#62;</code> here')
+        'use <code style="background-color:#181825">\u202F&#60;b&#62;x&#60;&#47;b&#62;\u202F</code> here')
     check("H13 HTML in a fence stays verbatim", JSON.stringify(blocks('```html\n<div onclick="x">hi</div>\n```')),
         JSON.stringify([{ type: "fence", text: '<div onclick="x">hi</div>', info: "html" }]))
     // The parser spells every escaped punctuation as a numeric reference (mdspec), so the entity stays text in that form.
