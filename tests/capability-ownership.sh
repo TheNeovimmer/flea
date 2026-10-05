@@ -71,7 +71,7 @@ cleanup() {
   [ ! -d "$test_root/stale-watch" ] || rmdir "$test_root/stale-watch"
   [ ! -d "$test_root/interrupted" ] || rmdir "$test_root/interrupted"
   [ -z "${stubborn_pid:-}" ] || command kill -KILL "$stubborn_pid" 2>/dev/null
-  [ ! -e "$test_root/stubborn" ] || unlink "$test_root/stubborn"
+  [ ! -e "$test_root/stubborn-ready" ] || unlink "$test_root/stubborn-ready"
   [ ! -e "$test_root/sleeper" ] || unlink "$test_root/sleeper"
   rmdir "$test_root"
 }
@@ -706,11 +706,14 @@ unlink "$test_root/interrupted/flea"
 unlink "$term_state"
 rmdir "$test_root/interrupted"
 
-printf '%s\n' '#include <signal.h>' '#include <unistd.h>' 'int main(void) { signal(SIGTERM, SIG_IGN); return sleep(60); }' \
-  | cc -x c -o "$test_root/stubborn" - || exit 1
-"$test_root/stubborn" &
+stubborn_ready="$test_root/stubborn-ready"
+(trap '' TERM; : > "$stubborn_ready"; exec sleep 60) &
 stubborn_pid=$!
-sleep 0.1
+stubborn_polls=0
+while [ ! -e "$stubborn_ready" ] && [ "$stubborn_polls" -lt "$end_named_polls" ]; do
+  sleep "$end_named_poll_s"
+  stubborn_polls=$(( stubborn_polls + 1 ))
+done
 stubborn_out=$(end_named_polls=2; end_named "$stubborn_pid"; printf 'status %s' "$?")
 command kill -KILL "$stubborn_pid" 2>/dev/null
 wait "$stubborn_pid" 2>/dev/null
@@ -718,8 +721,9 @@ case "$stubborn_out" in
   *"FAIL stubbed pid $stubborn_pid exits on SIGTERM"*"status 1") stubborn_seen=failed ;;
   *) stubborn_seen="$stubborn_out" ;;
 esac
+unset stubborn_pid
 check "a stubbed exit past its deadline fails the suite" failed "$stubborn_seen"
-unlink "$test_root/stubborn"
+unlink "$stubborn_ready"
 
 qs() { return 7; }
 require_flea_enumeration >/dev/null 2>&1
