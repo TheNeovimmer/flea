@@ -47,8 +47,10 @@ failures = 0
 # Every file git tracks under ui/ (a tree without git: every file but dotfiles and caches), so a package glob that misses one (ui/MarkdownWorker.js once) fails by name.
 source_ui = pathlib.Path(sys.argv[2]) / "ui"
 tracked = subprocess.run(["git", "-C", sys.argv[2], "ls-files", "-z", "--", "ui"], capture_output=True)
+# Sample input: b"ui/qmldir\0ui/Pane.qml\0" gives {"qmldir", "Pane.qml"}; a tracked name no longer on disk is left out.
 if tracked.returncode == 0 and tracked.stdout:
-    source_files = {name.removeprefix("ui/") for name in tracked.stdout.decode().split("\0") if name and not (pathlib.Path(sys.argv[2]) / name).is_symlink()}
+    source_files = {name.removeprefix("ui/") for name in tracked.stdout.decode().split("\0")
+                    if name and (pathlib.Path(sys.argv[2]) / name).is_file() and not (pathlib.Path(sys.argv[2]) / name).is_symlink()}
 else:
     source_files = {path.relative_to(source_ui).as_posix() for path in source_ui.rglob("*")
                     if path.is_file() and not path.is_symlink() and not any(part.startswith(".") or part == "__pycache__" for part in path.relative_to(source_ui).parts)}
@@ -70,9 +72,9 @@ for package in ("root", "flea", "flea-git", "flea-bin"):
             print(f"FAIL {package}: missing {relative}")
     shipped = {path.relative_to(ui).as_posix() for path in ui.rglob("*") if path.is_file()}
     checks += 1
-    if "qmldir" not in source_files or "qmldir" not in shipped:
+    if not source_files or not shipped:
         failures += 1
-        print(f"FAIL {package}: the ui/ file sets are empty, so the coverage check would hold nothing")
+        print(f"FAIL {package}: a ui/ file set is empty, so the coverage check would hold nothing")
     for relative in sorted(source_files - shipped):
         checks += 1
         failures += 1
