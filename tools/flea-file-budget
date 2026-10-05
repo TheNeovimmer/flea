@@ -85,6 +85,7 @@ tests/quicklook-firstframe.qml 432
 tests/markdown-render.qml 795
 tests/markdown-linearity.qml 650
 tests/markdown-preview-state.qml 467
+tests/markdown-tables.qml 401
 tests/preview-settle-live.qml 457
 tests/preview-decode.qml 507
 tests/js/status.js 354
@@ -100,7 +101,7 @@ ui/ColumnsArea.qml 491
 ui/ContextMenu.qml 739
 ui/ConvertDialog.qml 435
 ui/GridArea.qml 420
-ui/Ipc.qml 882
+ui/Ipc.qml 883
 ui/KeymapSheet.qml 549
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -118,7 +119,7 @@ ui/PickerWindow.qml 779
 ui/Preview.qml 669
 ui/PreviewColumn.qml 583
 ui/DeviceMounts.qml 496
-ui/PreviewMarkdown.qml 584
+ui/PreviewMarkdown.qml 595
 ui/Row.qml 482
 ui/SettingsPanel.qml 543
 ui/SettingsRow.qml 409
@@ -137,7 +138,7 @@ ui/js/Nav.js 308
 ui/js/Markdown.js 155
 ui/js/MdBlocks.js 380
 ui/js/MdDocument.js 341
-ui/js/MdLeaf.js 309
+ui/js/MdLeaf.js 314
 ui/js/MdInline.js 295
 ui/js/Menu.js 454
 ui/js/Drag.js 342

@@ -32,6 +32,14 @@ capmarkdown_pointer() {
     if [[ "$where" == close ]]; then
         read -r px py <<< "$(ipc previewCloseState | jq -r '.centre // empty' 2>/dev/null)"
         [[ -n "${py:-}" ]] || fail "capmarkdown: the close button never reported its centre"
+    elif [[ "$where" == table ]]; then
+        # The table's own rects over IPC: the middle of its drawn width, on the middle of its first body row.
+        local view row _a _b rw rh rx ry
+        view="$(ipc previewTable | jq -r '.view // empty')"; row="$(ipc previewTable | jq -r '.row // empty')"
+        [[ -n "$view" && -n "$row" ]] || fail "capmarkdown: no table reported its rects over IPC"
+        read -r sx _a sw _b <<< "$view"
+        read -r rx ry rw rh <<< "$row"
+        px=$((sx + sw / 2)); py=$((ry + rh / 2))
     else
         read -r sx sy sw sh <<< "$(ipc previewSurfaceRect)"
         [[ -n "${sh:-}" ]] || fail "capmarkdown: the Quick Look surface never reported its rect"
@@ -86,6 +94,10 @@ capmarkdown_close_wait_s=5
 capmarkdown_close_poll_s=0.05
 # A notch is 288 px: three reach the figures region below the quote and tables, twelve more clamp at the tail with the picture and the placeholder.
 capmarkdown_notches_mid=3
+# The wheel notches that scroll a table sideways to its far columns; a notch is 288 px and overflow.md runs several thousand past the card.
+capmarkdown_notches_side=20
+# What the last sideways step found wrong, kept so the other shots are still taken and the case fails once they are.
+capmarkdown_sideways_error=""
 capmarkdown_notches_end=12
 # The column is at its end when viewContentY is within this many pixels of viewEndY.
 capmarkdown_end_slack=1
@@ -410,12 +422,24 @@ capmarkdown_column_reach_end() {
     done
     fail "capmarkdown: $name never reached its column end after $capmarkdownkinds_end_runs wheel runs: viewContentY $before, viewEndY $end"
 }
+# overflow.md's 24 long words run past the card: a wheel right over its first body row must grow the table's own scroll position, read over IPC.
+capmarkdown_table_sideways() {
+    local name="$1" before after
+    capmarkdown_pointer table
+    before="$(ipc previewTable | jq -r '.scrollX // -1')"
+    omarchy-drive scroll right "$capmarkdown_notches_side" >/dev/null || { capmarkdown_sideways_error="scroll right $capmarkdown_notches_side failed on $name"; return 1; }
+    settle
+    shot "cap-markdown-kind-${name%.md}-sideways"
+    after="$(ipc previewTable | jq -r '.scrollX // -1')"
+    (( after > before )) || { capmarkdown_sideways_error="the sideways wheel left $name's table at scrollX $before, now $after"; return 1; }
+}
 # Shoots the open document, then its tail when it is taller than the card, then closes Quick Look.
 # Sample input: previewEndGap answers 0 when the last block and its inset are whole at the top, so nothing scrolls; any other number, -1 included, means the document runs past the card.
 capmarkdownkinds_shoot() {
     local name="$1" gap
     settle
     shot "cap-markdown-kind-${name%.md}"
+    [[ "$name" != overflow.md ]] || capmarkdown_table_sideways "$name" || true
     gap="$(ipc previewEndGap)"
     [[ "$gap" =~ ^-?[0-9]+$ ]] || fail "capmarkdownkinds: previewEndGap answered [$gap] for $name"
     if (( gap != 0 )); then
@@ -452,6 +476,7 @@ capmarkdown_fixture_set() {
         # A case counts as ok only with its shot on disk; the shot helper already fails an empty capture.
         [[ -s "$evidence_dir/cap-markdown-kind-${name%.md}.png" ]] || fail "capmarkdown $set: shot for $name is missing, not recording ok"
         results+="${name%.md}=ok "
+        [[ "$name" != overflow.md || -n "$capmarkdown_sideways_error" ]] || results+="overflow-sideways=ok "
     done
     switch_view columns
     for doc in "$repo"/tests/fixtures/"$set"/*.md "$@"; do
@@ -464,6 +489,7 @@ capmarkdown_fixture_set() {
     done
     printf '%s %scolumns=ok\n' "$tag" "$results"
     kill_flea
+    [[ -z "$capmarkdown_sideways_error" ]] || fail "capmarkdown $set: $capmarkdown_sideways_error"
 }
 # Every Markdown kind the stage draws beyond notes.md, shot on the display box: GFM tables, a README in raw HTML, a badge row, nesting with pictures inside blocks, and figures. Cases ql-markdown-tables, -html, -badges, -nesting and -figures in ci/visual/lane/cases.sh draw the same text headless.
 case_cap_markdown_kinds() {

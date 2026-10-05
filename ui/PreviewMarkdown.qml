@@ -135,6 +135,10 @@ Item {
     // What the Source text holds, so a suite sees that Rendered lays none out.
     readonly property int sourceChars: sourceList.laidChars
     readonly property Item bodyItem: body
+    // The route a sideways stroke takes to a table wider than the document, which each such table joins.
+    readonly property Item tableWheel: tableRoute
+    // The first live table drawn wider than the document, which Quick Look's IPC reads for the sideways capture.
+    function tableScroller() { return tableRoute.scrollers.filter(function (s) { return s })[0] || null }
     // The offset the wheel moved, in whichever view shows, for Quick Look's IPC.
     readonly property real scrollY: root.shownView === Markdown.SOURCE ? sourceList.contentY : body.contentY
     // The render suite reads live delegate geometry; only visible blocks plus the cache exist, so offscreen blocks answer null.
@@ -553,6 +557,13 @@ Item {
             parent: root
             anchors { top: parent.top; right: parent.right }
             flickable: body
+        }
+
+        // A sideways stroke over a table wider than the document goes to the table, above the handler that scrolls the document.
+        Flea.MarkdownTableWheel {
+            id: tableRoute
+            parent: root
+            visible: body.visible
         }
 
         delegate: Flea.MarkdownBlockView {

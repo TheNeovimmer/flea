@@ -549,6 +549,7 @@ QtObject {
         function columnLinesRect(): string { return root.columns ? root.fleaWindow.rectOf(root.columns.linesItem()) : "" }
         function columnArchiveRect(): string { return root.columns ? root.fleaWindow.rectOf(root.columns.archiveItem()) : "" }
         function previewSurfaceRect(): string { return root.previewReaders.previewSurfaceRect() }
+        function previewTable(): string { return root.previewReaders.previewTable() }
         function previewPictureRect(): string { return root.previewReaders.previewPictureRect() }
         function previewMediaLoaded(): bool { return root.previewReaders.previewMediaLoaded() }
         function previewText(): string { return root.previewReaders.previewText() }
