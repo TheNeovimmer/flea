@@ -3,8 +3,7 @@
 .import "../../ui/js/Sort.js" as Sort
 .import "sourcefixture.js" as Source
 
-// Execute the shipped list handler, grid dispatch and activation function under Qt's JS engine. This tests
-// dispatch, including the real preset table; it does not simulate native key delivery or a portal round trip.
+// Runs the shipped list handler, grid dispatch and activation under Qt's JS engine, never native key delivery or a portal round trip.
 function run(check) {
     var handler = Source.slice(Source.source("ui/PickerList.qml"), "Keys.onPressed:",
                                "// The listing is a window").replace(/^Keys.onPressed:\s*/, "").trim()

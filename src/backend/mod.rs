@@ -108,6 +108,10 @@ pub mod redo;
 pub mod link;
 // The open listing's directory, watched so an outside change reaches the client; see docs/protocol.md "changed".
 pub mod watch;
+// The walk over a buffer of inotify events, shared by both watches.
+pub mod inotifyburst;
+// The thread behind the peek watch, stoppable by its owner.
+pub mod peekpump;
 // The directories the columns view peeks at, watched the same way; see docs/protocol.md "changed".
 pub mod peekwatch;
 // Network folders inotify cannot see, re-statted at a named interval for the open folder only.

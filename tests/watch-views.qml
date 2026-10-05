@@ -67,6 +67,11 @@ ShellRoot {
             out.push(root.step("parent-create", ["mkdir", parent + "/sibling2"], up, "sibling2", ""))
             out.push(root.step("parent-rename", ["rename", parent + "/sibling", parent + "/sibling-r"], up, "sibling-r", "sibling"))
             out.push(root.step("parent-delete", ["rmdir", parent + "/sibling2"], up, "", "sibling2"))
+            // Climbing into the child makes the open folder a neighbour column and a later climb back makes the child one again: each must be watched anew.
+            out.push({ label: "enter-child", go: sub })
+            out.push(root.step("scrolled-parent-create", ["create", o + "/after-enter.txt"], function () { return root.neighbourNames(o) }, "after-enter.txt", ""))
+            out.push({ label: "climb-back", go: o })
+            out.push(root.step("returned-child-create", ["create", sub + "/after-climb.txt"], child, "after-climb.txt", ""))
         }
         return out
     }
@@ -111,11 +116,21 @@ ShellRoot {
             body.item.focusSide = one.focus
             return
         }
+        if (one.go !== undefined) {
+            root.pane().open(one.go)
+            return
+        }
         outsideProcess.createObject(root, { command: [Quickshell.env("WATCHVIEWS_OUTSIDE")].concat(one.args) })
     }
 
     function advance() {
         var one = root.steps[root.stepIndex]
+        if (one.go !== undefined) {
+            // The new folder's listing and its neighbour columns land before the next outside change.
+            var at = root.pane(), area = at.columnsArea
+            if (at.path !== one.go || at.listInFlight || at.listingState !== "ready" || !area || !area.answered(one.go === root.open ? root.open + "/sub" : root.open)) return
+            return root.begin(root.stepIndex + 1)
+        }
         if (one.focus !== undefined) {
             // The second pane lists its own folder; wait for it before the next outside change.
             var p = root.pane()

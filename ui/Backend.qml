@@ -285,10 +285,10 @@ Item {
         root.send({ c: "fsinfo" })
     }
 
-    // A read-only look elsewhere; Tab passes hiddenLast false, other callers keep the listing order, and only a column passes watch.
-    function peek(path, first, hidden, hiddenLast, watch) {
+    // A read-only look elsewhere; Tab passes hiddenLast false, other callers keep the listing order, and only a column passes keep, the directories drawn.
+    function peek(path, first, hidden, hiddenLast, keep) {
         var last = hiddenLast === undefined ? ViewState.state.hiddenLast === true : hiddenLast === true
-        root.send({ c: "peek", path: path, first: first, hidden: hidden, hiddenLast: last, watch: watch === true })
+        root.send({ c: "peek", path: path, first: first, hidden: hidden, hiddenLast: last, watch: Array.isArray(keep), keep: keep })
     }
 
     // op is "peers" for the flyout's list and "send" for the transfer it chooses; both answer late.

@@ -22,6 +22,13 @@ fn convert_preserves_probe_and_caller_identity_without_changing_legacy_activatio
 }
 
 #[test]
+fn a_watching_peek_names_the_column_directories_drawn() {
+    assert!(matches!(parse_request(r#"{"c":"peek","path":"/a","first":1,"watch":true,"keep":["/a","/a/b, [odd]"]}"#),
+        Request::Peek { watch: true, keep, .. } if keep == ["/a", "/a/b, [odd]"]));
+    assert!(matches!(parse_request(r#"{"c":"peek","path":"/a","first":1}"#), Request::Peek { watch: false, keep, .. } if keep.is_empty()));
+}
+
+#[test]
 fn parses_each_request_shape() {
     match parse_request(r#"{"c":"list","path":"/home/gm","first":350}"#) {
         Request::List { path, first, hidden, want_changed } => {

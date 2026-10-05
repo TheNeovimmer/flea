@@ -33,6 +33,8 @@ pub enum Event {
     PeekArmed(i32, PathBuf),
     // The peek watch descriptor that saw a change, answered as a changed line for that column's directory.
     PeekChanged(i32),
+    // The kernel dropped a peek watch itself, a deleted or unmounted directory, so the loop stops holding it.
+    PeekGone(i32),
     ReadError(FleaError),
     Closed,
 }

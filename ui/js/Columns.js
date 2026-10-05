@@ -202,6 +202,14 @@ function neighbourAsks(path, width, limit) {
     return ancestors(path, want)
 }
 
+// Sample input: keepAsks({ drawn: ["/a"] }, ["/a"], "/a/b") answers [{path "/a", again false}, {path "/a/b", again true}] and leaves drawn ["/a", "/a/b"]; again names a column not drawn last refresh.
+function keepAsks(keep, asks, child) {
+    var shown = child.length > 0 && asks.indexOf(child) < 0 ? asks.concat([child]) : asks.slice()
+    var plan = shown.map(function (path) { return { path: path, again: keep.drawn.indexOf(path) < 0 } })
+    keep.drawn = shown
+    return plan
+}
+
 // ui.json carries whatever a hand edit wrote, so only a finite number is a stored width; anything else keeps the measured one.
 // Sample input: storedNumber("120") is NaN, storedNumber(120.6) is 121.
 function storedNumber(raw) {

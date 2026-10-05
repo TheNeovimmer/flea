@@ -27,6 +27,8 @@ Item {
     // peekKey -> the mode of a peek that came back denied, which answers zero rows as an empty one does.
     property var denials: ({})
     property int peekVersion: 0
+    // The column directories drawn at the last refresh, which every watching peek names so the backend unwatches the rest.
+    readonly property var keep: ({ drawn: [] })
 
     readonly property string parentPath: Nav.parentOf(root.pane.path)
     // Extra columns are ancestors, oldest first, each with the parent column's own peek.
@@ -95,15 +97,13 @@ Item {
         var key = root.peekKey(path), sent = Columns.sentKey(key, root.pane.windowSize)
         if (path.length > 0 && (again === true || !root.peeked[key]) && !Columns.hasAsk(root.pending, sent)) {
             root.pending = Columns.trackAsk(root.pending, sent)
-            root.pane.backend.peek(path, root.pane.windowSize, root.pane.showHidden, undefined, true)
+            root.pane.backend.peek(path, root.pane.windowSize, root.pane.showHidden, undefined, root.keep.drawn)
         }
     }
 
     // Hidden view asks nothing; the gates are computed fresh, so a handler mid-notify cannot read a stale sibling binding.
     function refreshNeighbours() { if (!root.visible) return
-        var asks = Columns.neighbourAsks(root.pane.path, root.width, root.columnsLimit)
-        for (var i = 0; i < asks.length; i++) root.ask(asks[i])
-        root.ask(root.childPath)
+        Columns.keepAsks(root.keep, Columns.neighbourAsks(root.pane.path, root.width, root.columnsLimit), root.childPath).forEach(function (one) { root.ask(one.path, one.again) })
         root.askMeta()
         root.askThumb()
     }

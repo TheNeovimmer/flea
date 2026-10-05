@@ -1,5 +1,6 @@
 // The listed directory, watched so an outside change reaches the client; see docs/protocol.md.
 use crate::backend::events::Event;
+use crate::backend::inotifyburst::each_event;
 use crate::json::escape;
 use std::io;
 use std::ffi::{c_char, c_int, c_void, CString};
@@ -19,10 +20,10 @@ const IN_DELETE: u32 = 0x0000_0200;
 const IN_MOVE_SELF: u32 = 0x0000_0800;
 const IN_DELETE_SELF: u32 = 0x0000_0400;
 // The mount went away: the pane leaves the volume instead of re-listing a vanished path.
-const IN_UNMOUNT: u32 = 0x0000_2000;
+pub(crate) const IN_UNMOUNT: u32 = 0x0000_2000;
 // IN_IGNORED on the open watch re-lists; IN_Q_OVERFLOW arrives on wd -1 and is_current drops it.
 const IN_Q_OVERFLOW: u32 = 0x0000_4000;
-const IN_IGNORED: u32 = 0x0000_8000;
+pub(crate) const IN_IGNORED: u32 = 0x0000_8000;
 const MASK: u32 = IN_ATTRIB
     | IN_CLOSE_WRITE
     | IN_MOVED_FROM
@@ -33,12 +34,10 @@ const MASK: u32 = IN_ATTRIB
 
 // IN_CLOEXEC is O_CLOEXEC, so no thumbnailer child inherits this descriptor.
 const IN_CLOEXEC: c_int = 0x0008_0000;
-// One inotify_event is a watch descriptor, a mask, a cookie and a name length, then the name.
-const EVENT_HEADER: usize = 16;
 // One burst says one thing to a client that re-reads it all, so a thousand writes cost one line.
-const COALESCE: Duration = Duration::from_millis(100);
+pub(crate) const COALESCE: Duration = Duration::from_millis(100);
 // A batch size and not a limit: the kernel's own drop is at max_queued_events, which this misses.
-const BUF: usize = 8192;
+pub(crate) const BUF: usize = 8192;
 
 extern "C" {
     fn inotify_init1(flags: c_int) -> c_int;
@@ -70,7 +69,7 @@ impl Watch {
             eprintln!("flea: the open folder will not follow outside changes, inotify is unavailable");
             return Watch { fd: -1, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() };
         }
-        thread::spawn(move || pump(fd, tx, false));
+        thread::spawn(move || pump(fd, tx));
         Watch { fd, wd: -1, incoming: -1, mount: std::path::PathBuf::new(), incoming_mount: std::path::PathBuf::new() }
     }
 
@@ -179,7 +178,7 @@ impl Watch {
 }
 
 // Sample input: wd 1, mask 0x00000100, cookie 0, len 16, then "NEWFILE.txt\0\0\0\0\0".
-pub(crate) fn pump(fd: c_int, tx: Sender<Event>, peek: bool) {
+fn pump(fd: c_int, tx: Sender<Event>) {
     let mut buf = [0u8; BUF];
     loop {
         let n = unsafe { read(fd, buf.as_mut_ptr() as *mut c_void, BUF) };
@@ -198,11 +197,11 @@ pub(crate) fn pump(fd: c_int, tx: Sender<Event>, peek: bool) {
         }
         let (changed, unmounted) = classify_burst(&buf[..n as usize]);
         for wd in changed {
-            if tx.send(if peek { Event::PeekChanged(wd) } else { Event::Changed(wd) }).is_err() {
+            if tx.send(Event::Changed(wd)).is_err() {
                 return;
             }
         }
-        for wd in unmounted.into_iter().filter(|_| !peek) {
+        for wd in unmounted {
             if tx.send(Event::Unmounted(wd)).is_err() {
                 return;
             }
@@ -212,14 +211,10 @@ pub(crate) fn pump(fd: c_int, tx: Sender<Event>, peek: bool) {
 }
 
 // Sample input: one IN_CREATE on wd 3 plus one IN_UNMOUNT on wd 4 answers ([3], [4]).
-fn classify_burst(buf: &[u8]) -> (Vec<i32>, Vec<i32>) {
+pub(crate) fn classify_burst(buf: &[u8]) -> (Vec<i32>, Vec<i32>) {
     let mut changed: Vec<i32> = Vec::new();
     let mut unmounted: Vec<i32> = Vec::new();
-    let mut at = 0;
-    while at + EVENT_HEADER <= buf.len() {
-        let wd = i32::from_ne_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]]);
-        let mask = u32::from_ne_bytes([buf[at + 4], buf[at + 5], buf[at + 6], buf[at + 7]]);
-        let len = u32::from_ne_bytes([buf[at + 12], buf[at + 13], buf[at + 14], buf[at + 15]]) as usize;
+    each_event(buf, |wd, mask| {
         if mask & IN_UNMOUNT != 0 {
             if !unmounted.contains(&wd) {
                 unmounted.push(wd);
@@ -227,9 +222,7 @@ fn classify_burst(buf: &[u8]) -> (Vec<i32>, Vec<i32>) {
         } else if mask & (MASK | IN_DELETE_SELF | IN_Q_OVERFLOW | IN_IGNORED) != 0 && !changed.contains(&wd) {
             changed.push(wd);
         }
-        // The condition above is the bound that keeps this indexing inside the slice.
-        at += EVENT_HEADER + len;
-    }
+    });
     // A vanished path never answers changed: IN_IGNORED follows IN_UNMOUNT on the same wd.
     changed.retain(|wd| !unmounted.contains(wd));
     (changed, unmounted)
@@ -268,6 +261,7 @@ pub fn nearest_parent(path: &Path, exists: impl Fn(&Path) -> bool) -> std::path:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::inotifyburst::EVENT_HEADER;
 
     // Sample input: two events on watch 3, one carrying a 16 byte name and one carrying none.
     fn event(wd: i32, name: &[u8]) -> Vec<u8> {

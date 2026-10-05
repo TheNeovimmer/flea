@@ -265,11 +265,18 @@ under the status bar. `AnchorHold.viewport` names the scrolling surface, the act
 **A column's directory is watched through a second inotify descriptor.** Issue 244 asked why a listing
 does not follow another program, and the open folder always did; the neighbour columns did not, because a
 `peek` reads a directory the pane is not on and nothing watched it. `src/backend/peekwatch.rs` holds the
-watches a `peek` carrying `"watch":true` arms (only `ui/ColumnsArea.qml` sends it), at most eight, on
-their own descriptor so evicting one can never remove the listed folder's. A fire answers the ordinary
-`changed` line for that directory, and `ColumnsArea.onChanged` re-asks it with `ask(path, true)`, which
-keeps the rows drawn until the reply replaces them. `tests/watch-views.sh` drives the real window offscreen
-through list, columns (middle, child and parent column), grid and both dual panes with a create, a rename
+watches a `peek` carrying `"watch":true` arms (only `ui/ColumnsArea.qml` sends it), on their own
+descriptor so evicting one can never remove the listed folder's. Every watching peek names the directories the
+columns draw in its `keep` list (`Columns.keepAsks`, state in `ColumnsArea.keep`) and the backend unwatches the
+rest before it arms, so a column on screen never loses its
+watch to one scrolled past; eight is only the guard behind that, and a peek answered after the client moved on
+is unwatched at once. A column that returns after leaving the drawn set is re-asked (`again`), because its
+cached rows went unwatched. The kernel dropping a watch (a deleted or unmounted directory, `IN_IGNORED`) sends
+`PeekGone`, which stops holding it. `PeekWatch` owns its descriptor, an eventfd and the pump thread
+(`src/backend/peekpump.rs`): `Drop` writes the eventfd, joins the pump, then closes both.
+A fire answers the ordinary `changed` line for that directory, and `ColumnsArea.onChanged` re-asks it with
+`ask(path, true)`, which keeps the rows drawn until the reply replaces them. `tests/watch-views.sh` drives the real window offscreen
+through list, columns (middle, child and parent column, then again after entering the child and climbing back), grid and both dual panes with a create, a rename
 and a delete from another process, and was red on the child and parent columns before this.
 
 **The selection is re-anchored by file identity; the re-read no longer waits for it.** `ui/js/Selection.js` is a set

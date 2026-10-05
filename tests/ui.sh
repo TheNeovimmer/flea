@@ -2372,8 +2372,7 @@ case_click() {
     printf 'CLICK back path=%q\n' "$(ipc path)"
     shot click-back
     [[ "$(ipc path)" == "$deep" ]] || fail "click: the back button went to $(ipc path), not back to $deep"
-    # The forward button retraces that back, then back again restores the history the climb below spends.
-    # 0xC4 is button 4, BTN_EXTRA, which Qt reports as Qt.ForwardButton.
+    # 0xC4 is BTN_EXTRA, Qt.ForwardButton: it retraces that back, and a second back restores the history the climb below spends.
     ydotool click 0xC4 >/dev/null 2>&1 || fail "click: ydotool refused the mouse forward button"
     settle
     settle
