@@ -101,10 +101,19 @@ pub(crate) mod undoprobe;
 mod undocost_tests;
 #[cfg(test)]
 mod undostage_tests;
+// Test-only: a kernel network mount's EINVAL on RENAME_NOREPLACE, routed to a plain rename and never a copy.
+#[cfg(test)]
+mod renamecompat_tests;
 pub mod redo;
 pub mod link;
 // The open listing's directory, watched so an outside change reaches the client; see docs/protocol.md "changed".
 pub mod watch;
+// The walk over a buffer of inotify events, shared by both watches.
+pub mod inotifyburst;
+// The thread behind the peek watch, stoppable by its owner.
+pub mod peekpump;
+// The directories the columns view peeks at, watched the same way; see docs/protocol.md "changed".
+pub mod peekwatch;
 // Network folders inotify cannot see, re-statted at a named interval for the open folder only.
 pub mod watchpoll;
 // The system clipboard for files: set, get, clear and watch beside the request loop.

@@ -27,6 +27,8 @@ Item {
     // peekKey -> the mode of a peek that came back denied, which answers zero rows as an empty one does.
     property var denials: ({})
     property int peekVersion: 0
+    // The column directories drawn at the last refresh, which every watching peek names so the backend unwatches the rest.
+    readonly property var keep: ({ drawn: [] })
 
     readonly property string parentPath: Nav.parentOf(root.pane.path)
     // Extra columns are ancestors, oldest first, each with the parent column's own peek.
@@ -90,19 +92,18 @@ Item {
         return root.peekVersion >= 0 && path.length > 0 && root.peeked[key] !== undefined
     }
 
-    function ask(path) {
+    // again re-asks a column already held, the rows staying until the reply replaces them; rearm asks even with the first ask out, because the backend unwatched the column when it left the drawn set.
+    function ask(path, again, rearm) {
         var key = root.peekKey(path), sent = Columns.sentKey(key, root.pane.windowSize)
-        if (path.length > 0 && !root.peeked[key] && !Columns.hasAsk(root.pending, sent)) {
+        if (path.length > 0 && (again === true || !root.peeked[key]) && (rearm === true || !Columns.hasAsk(root.pending, sent))) {
             root.pending = Columns.trackAsk(root.pending, sent)
-            root.pane.backend.peek(path, root.pane.windowSize, root.pane.showHidden)
+            root.pane.backend.peek(path, root.pane.windowSize, root.pane.showHidden, undefined, root.keep.drawn)
         }
     }
 
     // Hidden view asks nothing; the gates are computed fresh, so a handler mid-notify cannot read a stale sibling binding.
     function refreshNeighbours() { if (!root.visible) return
-        var asks = Columns.neighbourAsks(root.pane.path, root.width, root.columnsLimit)
-        for (var i = 0; i < asks.length; i++) root.ask(asks[i])
-        root.ask(root.childPath)
+        Columns.keepAsks(root.keep, Columns.neighbourAsks(root.pane.path, root.width, root.columnsLimit), root.childPath).forEach(function (one) { root.ask(one.path, one.again, one.again) })
         root.askMeta()
         root.askThumb()
     }
@@ -297,6 +298,9 @@ Item {
     Connections {
         target: root.pane.backend
 
+        // The backend watches each column's directory and says so with the line the listed folder gets; the pane's own path is PaneWire's.
+        function onChanged(path) { if (root.peeked[root.peekKey(path)] !== undefined) root.ask(path, true) }
+
         // hidden, hiddenLast and first are the request's own, echoed; first keeps a 1 or 512 repair peek out of a column waiting on the window size.
         function onPeeked(path, hidden, total, rows, readFailed, mode, hiddenLast, first) {
             var key = Columns.peekKey(path, hidden, hiddenLast), sent = Columns.sentKey(key, first)
@@ -476,4 +480,12 @@ Item {
             }
         }
     }
+
+    // For ui/Ipc.qml: the names a drawn neighbour column holds, "|" joined, and "" when that column is not drawn.
+    function drawnNames(slot) {
+        var drawn = slot === "child" ? root.shownIsDir : (slot === "parent" && root.showParent && root.parentShown)
+        return drawn ? (slot === "child" ? childColumn.rows : parentColumn.rows).map(function (row) { return row.n }).join("|") : ""
+    }
+    // For ui/Ipc.qml: the names the window last read for a folder, drawn or not.
+    function peekNames(path) { return root.rowsFor(path).map(function (row) { return row.n }).join("|") }
 }

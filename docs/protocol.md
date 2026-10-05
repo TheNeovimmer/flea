@@ -1563,6 +1563,17 @@ directory still listed nothing at all: its watch was never removed, and the desc
 events carry is still the current one. `search` and `listpaths` both stop watching, because a set of
 matches and a set of named paths are not directories.
 
+**A column's directory is watched too, and answers this same line.** A `peek` that carries
+`"watch":true`, which only the columns view sends, arms a non-recursive watch on its directory before
+it scans, on a second inotify descriptor of its own so that removing one can never remove the listed
+folder's watch. The watch fires the `changed` line with `path` naming the peeked directory, and the
+client re-asks that column; a client on another path drops the line as it always did. Only the
+directories the latest watching `peek` names in `"keep"` stay watched, and a peek without the flag watches nothing.
+`"keep":[...]` is every column directory the client draws, the peeked one among them: the backend unwatches every
+other peeked directory before it arms this one, and unwatches at once a directory armed after the client moved on.
+Eight directories is a guard for a client that sends no `keep`, the oldest dropped first, and a directory the
+kernel stops watching (deleted, unmounted) leaves the set after its last `changed` line.
+
 The mechanism is one inotify watch on that one directory, non-recursive, with the mask
 `IN_ATTRIB | IN_CLOSE_WRITE | IN_MOVED_FROM | IN_MOVED_TO | IN_CREATE | IN_DELETE | IN_MOVE_SELF`,
 which is exactly the set of events that changes what a listing says: which names are in it, and the
@@ -1660,7 +1671,9 @@ plus `hidden` plus `hiddenLast` plus `first` can, which is all the correlation a
 so no request id has to be threaded through. A client that ignores the fields reads the line exactly
 as it did before. A `peek` request carries optional `hiddenLast`, `false` unless `true`: with
 it on the peek sorts dotfiles last the way the listing does, so the columns beside a hidden-last
-listing draw the same order instead of today's dotfiles-first one.
+listing draw the same order instead of today's dotfiles-first one. A `peek` request carries optional `watch`,
+`false` unless `true`, and `keep`, a list of paths: the columns view sets both so the backend arms a watch on that
+directory, see "A column's directory is watched too" above; the `peeked` reply is the same either way.
 
 ## Known gaps
 

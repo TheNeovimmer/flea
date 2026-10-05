@@ -871,6 +871,8 @@ QtObject {
         function trashFocusListing(): bool { var view = root.pane.trash.item; if (!view) return false; view.emptyItem.focus = false; view.forceActiveFocus(); return view.activeFocus && !view.emptyItem.activeFocus }
         // "hovered|focused|pressed|available" read from the strip button's own handlers and properties, one word each.
         function trashEmptyState(): string { var view = root.pane.trash.item; if (!view) return ""; var item = view.emptyItem; var hover = item.data.find(function(o) { return o.hovered !== undefined }); var tap = item.data.find(function(o) { return o.pressed !== undefined }); return [hover.hovered, item.focused, tap.pressed, item.available].join("|") }
+        function columnNames(slot: string): string { return root.columns ? root.columns.drawnNames(slot) : "" }
+        function columnPeekNames(path: string): string { return root.columns ? root.columns.peekNames(path) : "" }
     }
     function rowNameItem(i) {
         var item = root.pane.rowFor(i) ? root.pane.visibleItemFor(i) : null

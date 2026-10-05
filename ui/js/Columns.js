@@ -82,29 +82,32 @@ function sentKey(key, first) {
     return String(key) + "\n" + Math.floor(Number(first))
 }
 
-// An ask this view made and still awaits, keyed by sentKey (path, flags, row count), so another client's reply never lands in its column.
-// Sample input: trackAsk({}, "/a\n10\n35") holds that key.
+// An ask this view made and still awaits, counted per sentKey (path, flags, row count), so another client's reply never lands in its column and a column re-asked in flight lands both replies.
+// Sample input: trackAsk(trackAsk({}, "/a\n10\n35"), "/a\n10\n35") holds that key twice.
 function trackAsk(pending, key) {
     var next = {}
     var src = pending || {}
-    for (var k in src) next[k] = true
-    next[String(key)] = true
+    for (var k in src) next[k] = src[k]
+    next[String(key)] = (next[String(key)] || 0) + 1
     return next
 }
 
 // True only for a reply this view asked for; anything else is another client's.
 // Sample input: hasAsk(trackAsk({}, "/a\n10"), "/a\n10") is true.
 function hasAsk(pending, key) {
-    return !!((pending || {})[String(key)])
+    return ((pending || {})[String(key)] || 0) > 0
 }
 
 // One ask answered or superseded; a new listing drops them all.
-// Sample input: dropAsk(trackAsk({}, "/a\n10"), "/a\n10") holds nothing.
+// Sample input: dropAsk(trackAsk({}, "/a\n10"), "/a\n10") holds nothing, and dropAsk of a key asked twice holds it once.
 function dropAsk(pending, key) {
     var next = {}
     var want = String(key)
     var src = pending || {}
-    for (var k in src) if (k !== want) next[k] = true
+    for (var k in src) {
+        var left = k === want ? src[k] - 1 : src[k]
+        if (left > 0) next[k] = left
+    }
     return next
 }
 
@@ -200,6 +203,14 @@ function neighbourAsks(path, width, limit) {
     if (!(want >= 1))
         return []
     return ancestors(path, want)
+}
+
+// Sample input: keepAsks({ drawn: ["/a"] }, ["/a"], "/a/b") answers [{path "/a", again false}, {path "/a/b", again true}] and leaves drawn ["/a", "/a/b"]; again names a column not drawn last refresh.
+function keepAsks(keep, asks, child) {
+    var shown = child.length > 0 && asks.indexOf(child) < 0 ? asks.concat([child]) : asks.slice()
+    var plan = shown.map(function (path) { return { path: path, again: keep.drawn.indexOf(path) < 0 } })
+    keep.drawn = shown
+    return plan
 }
 
 // ui.json carries whatever a hand edit wrote, so only a finite number is a stored width; anything else keeps the measured one.

@@ -47,7 +47,7 @@ pub enum Request {
     // The status bar's filesystem line for the directory the pane is on.
     FsInfo,
     // A read-only look at a directory that is not the current listing; the columns view's ancestors.
-    Peek { path: String, first: usize, hidden: bool, hidden_last: bool, focus: String },
+    Peek { path: String, first: usize, hidden: bool, hidden_last: bool, focus: String, watch: bool, keep: Vec<String> },
     // A PDF fetched into a session-private copy under a deadline, so a hung mount never freezes the window.
     PdfCopy { id: usize, slot: String, path: String },
     // op is "compress" or "extract"; a compress names paths and a format, an extract names one path.
@@ -218,6 +218,10 @@ pub fn parse_request(line: &str) -> Request {
             // Absent is today's order, so an older client's peek still sorts dotfiles first.
             hidden_last: field_bool(line, "hiddenLast"),
             focus: field_str(line, "focus").unwrap_or_default(),
+            // Only the columns view asks to be told when this directory changes.
+            watch: field_bool(line, "watch"),
+            // Sample input: "keep":["/home","/home/gm"], every column directory the view draws; the rest stop being watched.
+            keep: field_str_array(line, "keep"),
         },
         Some("meta") => Request::Meta {
             token: field_usize(line, "token").unwrap_or(0),

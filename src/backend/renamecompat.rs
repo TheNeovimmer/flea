@@ -69,7 +69,7 @@ pub fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
-// The flagless fallback keeps no-clobber semantics: a taken destination stays EEXIST, and a file on a filesystem without hard links moves by plain rename.
+// The flagless fallback keeps no-clobber by a check, so a name created between the check and a plain rename can still be taken; a file links first and a taken name stays EEXIST.
 fn noreplace_fallback(from: &Path, to: &Path) -> io::Result<()> {
     if to.symlink_metadata().is_ok() {
         return Err(io::Error::from_raw_os_error(EEXIST));
@@ -276,7 +276,7 @@ fn needs_gvfs_webdav_fallback(from: &Path, error: &io::Error) -> bool {
     error.raw_os_error() == Some(EIO) && text.starts_with("/run/user/") && text.contains("/gvfs/dav:")
 }
 
-fn needs_fuse_fallback_in(from: &Path, error: &io::Error, mountinfo: &str) -> bool {
+pub(crate) fn needs_fuse_fallback_in(from: &Path, error: &io::Error, mountinfo: &str) -> bool {
     if error.raw_os_error() != Some(EINVAL) {
         return false;
     }

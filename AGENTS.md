@@ -262,6 +262,23 @@ too): the re-list's count passes through 0 and resets the view, and without the 
 bottom-aligned the clicked row, 58 px up on a list that End had scrolled into its footer, which left the row below it
 under the status bar. `AnchorHold.viewport` names the scrolling surface, the active column's list in the columns view.
 
+**A column's directory is watched through a second inotify descriptor.** Issue 244 asked why a listing
+does not follow another program, and the open folder always did; the neighbour columns did not, because a
+`peek` reads a directory the pane is not on and nothing watched it. `src/backend/peekwatch.rs` holds the
+watches a `peek` carrying `"watch":true` arms (only `ui/ColumnsArea.qml` sends it), on their own
+descriptor so evicting one can never remove the listed folder's. Every watching peek names the directories the
+columns draw in its `keep` list (`Columns.keepAsks`, state in `ColumnsArea.keep`) and the backend unwatches the
+rest before it arms, so a column on screen never loses its
+watch to one scrolled past; eight is only the guard behind that, and a peek answered after the client moved on
+is unwatched at once. A column that returns after leaving the drawn set is re-asked (`again`), because its
+cached rows went unwatched. The kernel dropping a watch (a deleted or unmounted directory, `IN_IGNORED`) sends
+`PeekGone`, which stops holding it. `PeekWatch` owns its descriptor, an eventfd and the pump thread
+(`src/backend/peekpump.rs`): `Drop` writes the eventfd, joins the pump, then closes both.
+A fire answers the ordinary `changed` line for that directory, and `ColumnsArea.onChanged` re-asks it with
+`ask(path, true)`, which keeps the rows drawn until the reply replaces them. `tests/watch-views.sh` drives the real window offscreen
+through list, columns (middle, child and parent column, then again after entering the child and climbing back), grid and both dual panes with a create, a rename
+and a delete from another process, and was red on the child and parent columns before this.
+
 **The selection is re-anchored by file identity; the re-read no longer waits for it.** `ui/js/Selection.js` is a set
 of row indices and its own rule is that a new listing clears them, because an index into a directory
 that has changed names another file. Re-pointing a selection at other files is how a delete hits the
@@ -3446,6 +3463,8 @@ Global limits and all checks remain intact.
 
 mx2 renders Markdown maths and Mermaid in a sandboxed quickjs-ng helper, each re-derived with `wc -l`: `src/figurehelper.rs` at 210 for the pure qjs and vendor resolution (`qjs_from` and `resolve_with`, with `qjs_path` and `resolve` the thin env-reading wrappers) with its env-free tests, the jailed argv with its three read-only binds and the 127 refusal; `ui/FigureService.qml` at 312 for the lazy Process with its stdin and SplitParser, the ticket deadlines with the timeout kill, the deadline timer running only while waiting holds a ticket, the 64-entry LRU with its key mirror, the idle exit and the 127 latch; `ui/js/FigureWorker.mjs` 632 to 645 (mathsize dropped the display-scale constant, mermaid-r1 and mermaid-r2 added the two advance tables to the key through `tableDigest` and to the request), which is 513 after deleting everything that only existed for the Qt worker engine plus 85 for the canvas's left trim, its tspan lines with SVG's nearest dy and its per-class glyph advances, plus 33 for baking each dy into its y because QtSvg ignores dy, keeping the post-processing both node and qjs import, then merged with the md stack's theme-role, canvas and marker post-processing; the helper itself is the new `ui/vendor/figure-helper.mjs` at 66, and the `.mjs` pair escapes `tools/flea-file-budget` the way the old worker did, since the scan reads no `.mjs` and the tool already excludes `ui/vendor/` outright. `src/backend/sandbox.rs` 365 to 385 for `wrap_readonly_extra` with its nothing-writable bind list, over the soft budget and under the hard cap; `src/main.rs` 361 to 392 for the dispatch, the same, where 367 was the stack's own and the stage's clip and tear-off dispatch adds the rest. `tests/markdown-figures.qml` 495 to 399 for the service suite (answers, cache hit with no new helper line, idle exit, timeout restart, 127 latch and fence, the deadline-timer stopped checks, and the FIGPSS phases with the FIGHELPER peak), leaving its recorded ceiling with nothing over it; `tools/vendor-js/build.sh` 27 to 43 for dropping the assembler check with the classic worker it assembled, refusing a missing bundle target before the download, then applying the beautiful-mermaid patch. Deleted with nothing left behind: `ui/vendor/figure-worker.js` and `tools/vendor-js/assemble-figure-workers.py`.
 
+The columns-watch work records two ceilings, each re-derived with `wc -l` at the commit that recorded it: `ui/Ipc.qml` 880 to 882 for the read-only `columnNames` and `columnPeekNames` readers, and `ui/ColumnsArea.qml` 483 to 491 for the `drawnNames` and `peekNames` functions behind them, which the native `colwatch` case (`tests/ui-colwatch.sh`, ui:colwatch) reads to see a side column's rows. The in-flight return fix (`ask` gains `rearm`, ask counts replace the ask set in `ui/js/Columns.js`, now 292 lines) moves no ceiling: `ui/ColumnsArea.qml` stays 491. Global limits and all checks remain intact.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.
@@ -3496,9 +3515,11 @@ case `click` then drives real clicks at the window, which is the half a JavaScri
 reach: it is what says a delegate hands `Tap.tapped` the tap count and the modifiers the click
 actually carried.
 
-The last two rows landed with issues 20 and 45 and are not `Tap.js`'s. `window` is the mouse's
-back button, which belongs to no row: `ui/WindowBody.qml` carries the handler and `ui/js/Nav.js`
-`mouseBack` decides between the history and the climb. `chrome` is the path above the listing and,
+The last two places landed with issues 20 and 45 and are not `Tap.js`'s. `window` is the mouse's
+two side buttons, which belong to no row: `ui/WindowBody.qml` carries one handler for both, `ui/js/Nav.js`
+`mouseBack` decides between the history and the climb and `ui/js/MouseNav.js` `forward` hands a press
+to `Pane.goForward`, which is the key's own entry and so refuses in Trash and in Recent. Both go
+through `MouseNav.refused`, the context-menu and collision-card refusal. `chrome` is the path above the listing and,
 in the dual view, each pane's own path, whose segments `ui/Crumb.qml` draws as their own click
 targets for both, placed by `ui/ChromeBar.qml` and by `ui/PanePath.qml`, from `ui/js/Crumbs.js`.
 Until 0.3.2 a dual pane's path was one `Text` answering only the double click, so a tap on a parent
@@ -3522,7 +3543,11 @@ it first. `tests/ui.sh` case `click` now closes that gap the way this paragraph 
 after the crumb press it parks the pointer over a listing row with `omarchy-drive move`, sends
 `ydotool click 0xC3` twice, and reads the path back through the IPC seam both times, so the history
 branch and the climb branch of `mouseBack` are each pressed through the shipped tree. The crumb half
-is pressed the same way, from `crumbCentre`, which is the seam `ui/Ipc.qml` grew for it.
+is pressed the same way, from `crumbCentre`, which is the seam `ui/Ipc.qml` grew for it. Between the
+two back presses the case sends `ydotool click 0xC4`, button 4, which Qt reports as `Qt.ForwardButton`,
+requires the path forward again, and backs once more so the climb still finds the history spent;
+`tests/js/navmouse.js` drives `MouseNav.forward` and the window's own handler (sliced from `ui/WindowBody.qml`, every
+overlay in turn, Trash and Recent), because `tests/js/nav.js` is at its hard cap.
 
 A crumb click answers on the first tap, GM's ruling of 2026-09-22. `ui/Crumb.qml` used to carry
 `exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap`, which makes the tap count decide by
@@ -5875,7 +5900,9 @@ there. Four triggers send only `rename` and its undo down one compatibility path
 rclone 1.75 returns `EINVAL` for `RENAME_NOREPLACE` on a directory under a mount identified exactly
 as `fuse.rclone` in `/proc/self/mountinfo`, and GVFS returns `EIO` for a rename under a
 `/run/user/*/gvfs/dav:` WebDAV mount; `fuse.megafs` answers `EINVAL` the same way, and a rename or
-its undo that crosses filesystems answers `EXDEV`.
+its undo that crosses filesystems answers `EXDEV`. Every other mount that answers `EINVAL`, a kernel nfs or nfs4
+export among them (PR 245), never copies: `noreplace_fallback` refuses a taken name, links a file or plain-renames a folder, and
+`src/backend/renamecompat_tests.rs` pins that the folder keeps its inode, a taken name or empty folder still refuses, and nfs stays off the copy fallback.
 corner: the lstat-then-rename window can replace a destination created in between; copy-fallback mounts never reach it because rename_noreplace keeps their EINVAL.
 Ordinary rclone directory rename is never used because it was
 proven to replace even a non-empty target. `renamecompat::rename_path` instead builds the target
@@ -6024,10 +6051,10 @@ capture, with its identities still checked per item. Move to Dropbox lost its ow
 Dropbox" sticky with this, because a move waiting on the card would have left it standing after a
 Cancel; transferstarted names the move a moment later. The shelf's own `flea shelf` actions and the
 TUI pass no choice and refuse as before. **The pane does not navigate behind the card**:
-`ui/js/Nav.js` `mouseBack` refuses while `pane.collide.opened`, the way it refuses behind the context
-menu, since the transfer waiting on the card names the folder it asked about; the keyboard and the
-chrome's own back and up buttons are covered by the card's focus and backdrop, and there is no
-forward mouse button binding to gate. `tests/ui-operations-design.sh` and `tests/ui-providers.sh`
+`ui/js/MouseNav.js` `refused` stops `mouseBack` and `forward` while `pane.collide.opened`, the way it stops them
+behind the context menu, since the transfer waiting on the card names the folder it asked about; the
+keyboard and the chrome's own back and up buttons are covered by the card's focus and backdrop.
+`tests/ui-operations-design.sh` and `tests/ui-providers.sh`
 drove their error and retry footers with a real name collision through Copy to and Move to Dropbox;
 a collision now asks instead, so the Copy to flow fails on an unreadable source file and Move to Dropbox
 fails on a source folder that cannot be written, each a real failure that is not a name.

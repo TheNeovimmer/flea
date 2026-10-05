@@ -2,7 +2,7 @@ use crate::backend::meta::stat_range;
 use crate::backend::meta::Meta;
 use crate::backend::archivereq::{formats_line, start_archive, start_convert};
 use crate::backend::convert;
-use crate::backend::peek::peek_line;
+use crate::backend::peekwatch::PeekWatch;
 use crate::backend::metareq::spawn as spawn_meta;
 use crate::backend::opsdispatch::{cancel_transfer, do_mkdir, do_newfile, do_permissions_batch, do_rename, do_undo, report_op, resolve_rows, start_duplicate, start_link, start_link_target, start_trash, start_transfer, start_menu_transfer, start_redo, Ops};
 use crate::backend::opsreq::OpMsg;
@@ -75,6 +75,7 @@ pub fn run() -> i32 {
     let loop_tx = tx.clone();
     // Armed before the first request, so no listing is ever answered with nothing watching it.
     let mut watch = Watch::start(tx.clone());
+    let mut peeks = PeekWatch::start(tx.clone());
     let poller = super::watchpoll::Poller::new(tx.clone());
     loop {
         start_next(&mut st);
@@ -97,7 +98,7 @@ pub fn run() -> i32 {
         };
         match event {
             Event::Request(line) => {
-                if handle_line(&line, &mut out, &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo, &poller, &loop_tx) == Control::Quit {
+                if handle_line(&line, &mut out, &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut peeks, &mut fsinfo, &poller, &loop_tx) == Control::Quit {
                     break;
                 }
             }
@@ -130,6 +131,10 @@ pub fn run() -> i32 {
                     say(&mut out, &changed_line(&st.base));
                 }
             }
+            // A column's directory changed: the line the listed folder gets, for a path the pane is not on.
+            Event::PeekArmed(wd, path) => peeks.register(wd, path),
+            Event::PeekChanged(wd) => if let Some(path) = peeks.path_of(wd) { say(&mut out, &changed_line(path)) },
+            Event::PeekGone(wd) => peeks.forget(wd),
             // A late list worker's descriptor goes unless a re-list aliased it onto the live watch.
             Event::AbandonWatch(wd) => watch.abandon_wd(wd),
             Event::Op(m) => report_op(&mut out, &mut ops, m),
@@ -162,6 +167,7 @@ fn handle_line(
     cache: &Cache,
     ops: &mut Ops,
     watch: &mut Watch,
+    peeks: &mut PeekWatch,
     fsinfo: &mut FsInfo,
     poller: &super::watchpoll::Poller,
     loop_tx: &Sender<Event>,
@@ -388,17 +394,10 @@ fn handle_line(
         Request::Undo => do_undo(out, ops),
         Request::Redo => start_redo(out, ops),
         // Never touches st.listing, which is the whole point: a column is not the pane's own listing.
-        Request::Peek { path, first, hidden, hidden_last, focus } => {
-            let body = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
-            let base = PathBuf::from(&path);
-            let mime = std::sync::Arc::clone(&tb.mime);
-            let icons = std::sync::Arc::clone(&tb.icons);
-            match super::iomount::call(&base, &body, "peek", move || {
-                peek_line(&path, first, hidden, hidden_last, &focus, &mime, &icons)
-            }) {
-                Ok(line) => say(out, &line),
-                Err(_) => say(out, &format!("{{\"t\":\"peeked\",\"path\":\"{}\",\"hidden\":{},\"hiddenLast\":{},\"first\":{},\"n\":0,\"failed\":true,\"rows\":[]}}", crate::json::escape(&base.to_string_lossy()), hidden, hidden_last, first)),
-            }
+        Request::Peek { path, first, hidden, hidden_last, focus, watch, keep } => {
+            if watch && !keep.is_empty() { peeks.keep(keep.into_iter().map(PathBuf::from).collect()) }
+            let line = super::peek::answer(&path, first, hidden, hidden_last, focus, watch.then(|| (peeks.raw_fd(), loop_tx.clone())), tb);
+            say(out, &line)
         }
         // A compress names absolute paths and no path; an extract names the one archive in path.
         Request::Archive { op, paths, path, dest, format, menu_id } => start_archive(
@@ -590,7 +589,7 @@ mod tests {
         let cache = Cache::at(cache_root);
         let (tx, _rx) = channel();
         let mut ops = Ops::new(tx);
-        let mut watch = Watch::start(events.clone());
+        let (mut watch, mut peeks) = (Watch::start(events.clone()), PeekWatch::start(events.clone()));
         let mut fsinfo = FsInfo::new(events.clone());
         let poller = super::super::watchpoll::Poller::new(events.clone());
         let done = super::super::iomount::ListOut {
@@ -616,7 +615,7 @@ mod tests {
         let _stuck = super::super::iomount::test_hold_stuck(mount);
         let calls_before = super::super::iomount::test_calls();
         assert!(handle_line(r#"{"c":"window","start":0,"count":1}"#, &mut out,
-            &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut fsinfo, &poller,
+            &mut st, &tb, &pool, &cache, &mut ops, &mut watch, &mut peeks, &mut fsinfo, &poller,
             &events) == Control::Continue);
         assert!(super::super::iomount::test_calls() > calls_before, "the window reaches the real mount bound");
         let response = String::from_utf8(out).expect("the error wire is UTF-8");
@@ -653,14 +652,14 @@ mod tests {
             let cache = Cache::new();
             let (tx, rx) = channel();
             let mut ops = Ops::new(tx);
-            let mut watch = Watch::start(events.clone());
+            let (mut watch, mut peeks) = (Watch::start(events.clone()), PeekWatch::start(events.clone()));
             let mut fsinfo = FsInfo::new(events.clone());
             let poller = super::super::watchpoll::Poller::new(events.clone());
             let link = format!(r#"{{"c":"link","rows":[0,1],"dest":"{}","op":"relative"}}"#, crate::json::escape(&dest_path.to_string_lossy()));
             let mut out = Vec::new();
             for line in [&link, r#"{"c":"paths","rows":[0,1]}"#, &link] {
                 assert!(handle_line(line, &mut out, &mut st, &tb, &pool, &cache, &mut ops,
-                    &mut watch, &mut fsinfo, &poller, &events) == Control::Continue);
+                    &mut watch, &mut peeks, &mut fsinfo, &poller, &events) == Control::Continue);
             }
             answered.send((std::mem::take(&mut out), ops.live.running().is_some(), ops.journal.is_empty(), ops.pending.is_empty())).unwrap();
             let landed = rx.recv_timeout(REPLY_DEADLINE).expect("the released link reports through the op channel");
