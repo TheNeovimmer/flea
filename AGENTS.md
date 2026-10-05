@@ -3506,6 +3506,8 @@ mx2 renders Markdown maths and Mermaid in a sandboxed quickjs-ng helper, each re
 
 The columns-watch work records two ceilings, each re-derived with `wc -l` at the commit that recorded it: `ui/Ipc.qml` 880 to 882 for the read-only `columnNames` and `columnPeekNames` readers, and `ui/ColumnsArea.qml` 483 to 491 for the `drawnNames` and `peekNames` functions behind them, which the native `colwatch` case (`tests/ui-colwatch.sh`, ui:colwatch) reads to see a side column's rows. The in-flight return fix (`ask` gains `rearm`, ask counts replace the ask set in `ui/js/Columns.js`, now 292 lines) moves no ceiling: `ui/ColumnsArea.qml` stays 491. Global limits and all checks remain intact.
 
+rflake 2026-10-05 (the exact-wait test compared least overshoots against a 2.5 ms bound and missed 3 in 12 loaded runs at 2.51, 4.44 and 3.49 ms, scheduler spikes under saturation, never the product) moves one ceiling, re-derived with `wc -l`: `src/backend/gvfslist.rs` 549 to 560 for the hardened estimator (64 samples with two warmup pairs, per-side lower quarter instead of least, same GAP, SLOWEST_CAUGHT, threshold and attempts; the restored 20 ms poll loop still fails it at 4.99 ms). Global limits and all checks remain intact.
+
 ## The key table is generated
 
 `keys.toml` at the repository root is the single source of truth for every binding.

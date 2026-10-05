@@ -426,7 +426,10 @@ mod tests {
     #[test]
     fn a_gio_exit_is_noticed_when_it_exits_rather_than_at_the_next_poll_boundary() {
         const ATTEMPTS: usize = 3;
-        const RUNS: usize = 9;
+        // Sixty-four samples so the lower quarter is the cluster, not one lucky dip; spikes and dips both land outside it.
+        const RUNS: usize = 64;
+        const QUARTER: usize = RUNS / 4;
+        const WARMUP: usize = 2;
         const NEAR_SLEEP: Duration = Duration::from_millis(30);
         for attempt in 1..=ATTEMPTS {
             let dir = TestDir::new("gvfs-exact-wait");
@@ -445,14 +448,20 @@ mod tests {
                 assert!(took >= sleep, "the child returned before its own sleep, at {took:?}");
                 took - sleep
             };
+            // Spikes land above the quarter and dips below only rarely, so the quarter reads the cluster either side holds; a stepped waiter still stands off by GAP.
+            for _ in 0..WARMUP {
+                run_gio(&near_gio, NEAR_SLEEP);
+                run_gio(&far_gio, NEAR_SLEEP + GAP);
+            }
             let mut near: Vec<Duration> = Vec::with_capacity(RUNS);
             let mut far: Vec<Duration> = Vec::with_capacity(RUNS);
             for _ in 0..RUNS {
                 near.push(run_gio(&near_gio, NEAR_SLEEP));
                 far.push(run_gio(&far_gio, NEAR_SLEEP + GAP));
             }
-            let least = |samples: &[Duration]| samples.iter().copied().min().unwrap_or_default();
-            let exact = least(&near).abs_diff(least(&far));
+            near.sort_unstable();
+            far.sort_unstable();
+            let exact = near[QUARTER].abs_diff(far[QUARTER]);
             let mut near_ref: Vec<Duration> = Vec::with_capacity(RUNS);
             let mut far_ref: Vec<Duration> = Vec::with_capacity(RUNS);
             for _ in 0..RUNS {
@@ -465,12 +474,14 @@ mod tests {
                     out.push(took - sleep);
                 }
             }
-            let stepped = least(&near_ref).abs_diff(least(&far_ref));
+            near_ref.sort_unstable();
+            far_ref.sort_unstable();
+            let stepped = near_ref[QUARTER].abs_diff(far_ref[QUARTER]);
             if stepped < GAP / 2 && attempt < ATTEMPTS {
                 continue;
             }
             assert!(stepped >= GAP / 2, "a {SLOWEST_CAUGHT:?} poll waiter moved only {stepped:?}, so this builder cannot see a step");
-            assert!(exact < GAP / 2, "least overshoot moves {exact:?} between a 30 ms and a 35 ms gio child, against {stepped:?} for a {SLOWEST_CAUGHT:?} poll waiter");
+            assert!(exact < GAP / 2, "lower-quarter overshoot moves {exact:?} between a 30 ms and a 35 ms gio child, against {stepped:?} for a {SLOWEST_CAUGHT:?} poll waiter");
             return;
         }
     }
