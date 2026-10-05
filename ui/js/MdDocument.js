@@ -87,22 +87,27 @@ function writer(state, dir, chrome, ink, pass, shared) {
         for (var b = 0; b < blocks.length; b++)
             out.push(blocks[b])
     }
-    // An HTML heading draws with the Markdown heading recipe for its level; its leading picture is an image block with its alignment.
-    function pushHeading(head) {
+    // The blocks an HTML heading draws as, its leading picture an image block; null when its drawn text, references resolved, still holds a picture.
+    function headingBlocks(head) {
+        var blocks = []
         var inner = head.inner
         var logo = head.align === "right" ? null : HtmlHeading.headingPicture(inner, dir)
         if (logo !== null) {
             if (head.align === "center")
                 logo.block.align = "center"
-            out.push(logo.block)
+            blocks.push(logo.block)
             inner = logo.rest
             if (inner.trim().length === 0)
-                return
+                return blocks
         }
-        var headBlock = { type: "heading", level: head.level, text: inlineOf(Leaf.headingSafe(inner)) }
+        var text = inlineOf(Leaf.headingSafe(inner))
+        if (HtmlHeading.DRAWN_PICTURE.test(text))
+            return null
+        var headBlock = { type: "heading", level: head.level, text: text }
         if (head.align !== null)
             headBlock.align = head.align
-        out.push(headBlock)
+        blocks.push(headBlock)
+        return blocks
     }
     function flushRun() {
         var plain = []
@@ -124,13 +129,14 @@ function writer(state, dir, chrome, ink, pass, shared) {
                 continue
             }
             // A heading in a lone wrapper lifts with it; one in other open HTML stays in its run, so no wrapper is ever split.
-            var lifted = depth === 0 ? HtmlHeading.headingUnit(run, i, dir) : null
-            var htmlHead = lifted !== null ? lifted.head : depth === 0 ? HtmlHeading.loneHeading(run[i], dir) : null
-            if (htmlHead !== null) {
+            var lifted = depth === 0 ? HtmlHeading.headingUnit(run, i) : null
+            var htmlHead = lifted !== null ? lifted.head : depth === 0 ? HtmlBlock.htmlHeading(run[i]) : null
+            var drawn = htmlHead !== null ? headingBlocks(htmlHead) : null
+            if (drawn !== null) {
                 pushRun(plain)
                 plain = []
                 depth = 0
-                pushHeading(htmlHead)
+                pushAll(drawn)
                 if (lifted !== null) {
                     i = lifted.end
                     plain = lifted.wrapper.slice()

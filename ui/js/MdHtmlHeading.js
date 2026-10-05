@@ -5,31 +5,17 @@
 .import "MdHtmlImage.js" as HtmlImage
 .import "MdHtmlBlock.js" as HtmlBlock
 
-// Sample input: '<img src="a.png">', '<IMG src=a.png>' and '![logo](a.png)' hold a picture; 'Flea', '<imgs>' and 'Wow![beta]' hold none.
-var PICTURE_TAG = /<img\b|!\[[^\]]*\]\(/i
-// Sample input: a heading of 'Flea' lifts; one of '<img src="logo.png" width="120">Flea' lifts its picture out; 'Flea <img src="logo.png">' or a right aligned picture heading does not.
-// A heading whose picture the lift cannot take stays whole in its run, where the picture path sizes it, as no heading text holds a picture.
-function liftable(head, dir) {
-    if (!PICTURE_TAG.test(head.inner))
-        return true
-    var logo = head.align === "right" ? null : headingPicture(head.inner, dir)
-    return logo !== null && !PICTURE_TAG.test(logo.rest)
-}
-
-// Sample input: '<h1>Flea</h1>' answers its heading; a line that is no heading, or whose picture cannot lift, answers null.
-function loneHeading(line, dir) {
-    var head = HtmlBlock.htmlHeading(line)
-    return head !== null && liftable(head, dir) ? head : null
-}
+// Sample input: drawn heading text '![](file:///d/logo.png)Flea' or '<img src="a.png">' holds a picture; 'Flea' and 'Wow!\[beta]' hold none.
+var DRAWN_PICTURE = /<img\b|!\[(?:\\.|[^\]\\])*\]\(/i
 
 // Sample input: ['<div align="center">', '<h1>Flea</h1>', '<p>x</p>', '</div>'] at 0 answers { head, end: 3, wrapper: ['<div align="center"><p>x</p></div>'] }; a heading with no lone wrapper before it, or a wrapper that cannot be matched, answers null.
 // The heading lifts out with its own align, else the wrapper's centre; what the wrapper held after it is drawn centred as it was.
-function headingUnit(lines, at, dir) {
+function headingUnit(lines, at) {
     var open = String(lines[at]).trim()
     if (!HtmlImage.WRAPPER_OPEN.test(open) || at + 1 >= lines.length)
         return null
     var head = HtmlBlock.htmlHeading(lines[at + 1])
-    if (head === null || !liftable(head, dir))
+    if (head === null)
         return null
     var name = MdHtml.tagHead(open).name
     var tail = HtmlImage.wrapperTail(lines, at + 2, name)
