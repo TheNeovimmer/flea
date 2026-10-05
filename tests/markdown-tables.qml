@@ -258,7 +258,7 @@ ShellRoot {
         if (error === "" && pane.tableWheel.scrollers.filter(function (s) { return s }).length !== scrollers.length)
             error = "the router holds " + pane.tableWheel.scrollers.filter(function (s) { return s }).length + " scrollers for " + scrollers.length + " flickables"
         shell.check(error, name + " " + label + " drops its scroll when it stops overflowing")
-        // The IPC's table is the first live one, whichever tables dropped theirs.
+        // The IPC's table is the router's first live one, in join order, whichever tables dropped theirs.
         var first = pane.tableScroller()
         var live = pane.tableWheel.scrollers.filter(function (s) { return s })
         var ipc = scrollers.length > 0 && (first === null || first.table.firstRow() === null) ? "tableScroller answers " + first + " while " + scrollers.length + " tables still scroll"
