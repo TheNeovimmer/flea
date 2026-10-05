@@ -10,11 +10,16 @@
 .import "MdMath.js" as Maths
 .import "MdEntity.js" as Ent
 
-function writer(state, dir, chrome, ink) {
+// Items and quotes hold their blocks as parts down to this many levels; deeper text stays one markdown text, which keeps a deep chain linear.
+var NEST_LIMIT = 8
+
+// shared is set for the writer of an item's or a quote's parts, which numbers footnotes and tokens with the document's.
+function writer(state, dir, chrome, ink, pass, shared) {
     var out = []
     var run = []
-    var tokens = []
-    var cited = []
+    var tokens = shared !== undefined ? shared.tokens : []
+    var cited = shared !== undefined ? shared.cited : []
+    var level = shared !== undefined ? shared.level : 0
     function inlineOf(text, citations, literalPlain, bareText) {
         return Run.parseInline(text, dir, state.defs, state.numbers, chrome, ink, tokens,
             citations === false ? undefined : cited, literalPlain, bareText)
@@ -42,6 +47,15 @@ function writer(state, dir, chrome, ink) {
             else if (pieces[p].math !== "")
                 out.push({ type: "figure", kind: "math", source: pieces[p].math, display: true })
         }
+    }
+    // Sample input: the lines "a", "```", "x", "```" answer a run and a fence; null past NEST_LIMIT, where the lines stay one text.
+    function partsOf(lines) {
+        if (level >= NEST_LIMIT)
+            return null
+        var own = { defs: state.defs, notes: state.notes, numbers: state.numbers, hidden: {}, escaped: {}, code: {}, dropped: [] }
+        var inner = writer(own, dir, chrome, ink, pass, { tokens: tokens, cited: cited, level: level + 1 })
+        pass(lines, own, inner.project, false, true)
+        return inner.finish()
     }
     function pushAll(blocks) {
         for (var b = 0; b < blocks.length; b++)
@@ -99,9 +113,9 @@ function writer(state, dir, chrome, ink) {
             pushAll(Leaf.chunkTable(Leaf.tableBlock(event.head, event.aligns, event.rows,
                 function (text) { return inlineOf(text, true, true) })))
         } else if (event.type === "quote") {
-            pushAll(Items.quoteBlocks(event.lines, state, inlineOf))
+            pushAll(Items.quoteBlocks(event.lines, state, inlineOf, partsOf))
         } else if (event.type === "list") {
-            var list = Items.listBlock(event, state, inlineOf)
+            var list = Items.listBlock(event, state, inlineOf, partsOf)
             if (list.items.length > 0)
                 pushAll(Chunks.chunkList(list))
         } else {
@@ -186,7 +200,8 @@ function writer(state, dir, chrome, ink) {
         flushCode()
         flushRun()
         var footItems = []
-        for (var i = 0; i < cited.length; i++) {
+        // Only the document's own writer lists the notes cited anywhere, parts included.
+        for (var i = 0; shared === undefined && i < cited.length; i++) {
             var id = cited[i]
             footItems.push("<sup>" + state.numbers[id] + "</sup> " + inlineOf(state.notes[id].text, false))
         }

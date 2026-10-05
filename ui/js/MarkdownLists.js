@@ -1,7 +1,8 @@
 .pragma library
 
 // MarkdownLists: where each entry of a list block draws, from the parser's depths, markers and gaps.
-// Unordered markers by depth: disc, circle, square (U+2022, U+25E6, U+25AA), then square for deeper levels.
+
+// Unordered markers by depth are disc, circle, square (U+2022, U+25E6, U+25AA), then square for deeper levels.
 var BULLETS = ["•", "◦", "▪"]
 var ORDERED_MARKER = /^\d/
 
@@ -9,8 +10,7 @@ function bulletAt(depth) {
     return BULLETS[Math.min(depth, BULLETS.length - 1)]
 }
 
-// Sample input: block { items: ["a", "b", "c"], depths: [0, 1, 0], markers: ["•", "•", "•"] } answers
-// [{ x: 0, w: 8, marker: "•", gap: false }, { x: 8 + spacing, ... marker: "◦" }, { x: 0, ... }].
+// Sample input: items a (depth 0) and b (depth 1) answer cells at x 0 and at a's marker width plus spacing.
 // advance(text) is the marker font's advance width; spacing is the gap between a marker and its text.
 function layout(block, advance, spacing) {
     var count = block.items.length
@@ -19,6 +19,18 @@ function layout(block, advance, spacing) {
     var open = []
     var previous = -1
     var bullet = advance(BULLETS[0])
+    // The marker a run's column is sized by: the parser's own for an ordered run, the depth's bullet for the rest.
+    function widest(held, depth) {
+        return held.ordered ? held.marker : bulletAt(depth)
+    }
+    // A chunk opens under the runs the list had open before it, each at the column the whole list gives it.
+    var carry = block.carry !== undefined ? block.carry : []
+    for (var c = 0; c < carry.length; c++) {
+        var held = { depth: c, ordered: carry[c].ordered, width: advance(widest(carry[c], c)), parent: c > 0 ? open[c - 1] : undefined, x: 0 }
+        runs.push(held)
+        open[c] = held
+        previous = c
+    }
     for (var k = 0; k < count; k++) {
         var depth = block.depths !== undefined ? block.depths[k] : 0
         var given = block.markers !== undefined ? block.markers[k] : block.ordered ? (block.start + k) + "." : BULLETS[0]
@@ -36,14 +48,21 @@ function layout(block, advance, spacing) {
         // A long list's later chunks keep the first chunk's marker column width, so a chunk's text stays in line with its neighbours.
         if (depth === 0 && ordered && block.last !== undefined)
             run.width = Math.max(run.width, advance(block.last + "."))
-        var gap = k > 0 && block.gaps !== undefined && (block.gaps[k] || (depth > previous && block.gaps[k - 1]))
+        // A joined chunk lies flush under its predecessor, so its first entry keeps the gap the whole list gave it.
+        var gap = (k > 0 || block.joined === true) && block.gaps !== undefined && (block.gaps[k] || (k > 0 && depth > previous && block.gaps[k - 1]))
         out.push({ x: 0, w: 0, marker: marker, gap: gap === true, run: run })
         previous = depth
+    }
+    // The runs still open at the chunk's end take the column the whole list gives them, which a later entry may widen.
+    var tail = block.tail !== undefined ? block.tail : []
+    for (var t = 0; t < tail.length; t++) {
+        if (open[t] !== undefined && open[t].ordered === tail[t].ordered)
+            open[t].width = Math.max(open[t].width, advance(widest(tail[t], t)))
     }
     // Parents come before their children in runs, so a run's own column is known when its children read it.
     for (var r = 0; r < runs.length; r++) {
         var at = runs[r]
-        // A chunk that opens inside a nested list has no parent here, so each missing level counts one disc column.
+        // A chunk that opens inside a nested list with nothing carried has no parent here, so each missing level counts one disc column.
         at.x = at.parent !== undefined ? at.parent.x + at.parent.width + spacing : at.depth * (bullet + spacing)
     }
     for (var e = 0; e < out.length; e++) {

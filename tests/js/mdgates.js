@@ -10,7 +10,7 @@ function run(check) {
     check("md3z F2 image sentence beside resolution", /\/\/ Resolve images[^\n]*\n    function askParse/.test(preview), true)
     check("md3z F3 markerPaths sample", /\/\/ Sample input:[^\n]*points=[^\n]*\nfunction markerPaths/.test(Source.source("ui/js/FigureWorker.mjs")), true)
     var commentFiles = ["ui/MarkdownFigure.qml", "ui/MarkdownText.qml", "ui/MarkdownPane.qml",
-        "ui/PreviewMarkdown.qml", "ui/js/MdBlocks.js", "ui/js/MdItems.js", "ui/js/MdMath.js", "ui/js/MdEmph.js", "ui/js/MdBreak.js"]
+        "ui/PreviewMarkdown.qml", "ui/js/MdBlocks.js", "ui/js/MdItems.js", "ui/js/MdMath.js", "ui/js/MdEmph.js", "ui/js/MdBreak.js", "ui/js/MarkdownLists.js", "ui/js/MdChunks.js"]
     for (var f = 0; f < commentFiles.length; f++) {
         var sourceLines = Source.source(commentFiles[f]).split("\n")
         for (var c = 0; c < sourceLines.length; c++) {
@@ -22,6 +22,12 @@ function run(check) {
                 check("md3u F4 single constraint " + commentFiles[f] + ":" + (c + 1),
                     /Sample(?: input)?:/.test(sourceLines[c - 1] + sourceLines[c]), true)
         }
+    }
+    // A shell comment is one line, or one sample-input line beside one constraint line.
+    var blockcost = Source.source("tests/markdown-blockcost.sh").split("\n")
+    for (var h = 1; h < blockcost.length; h++) {
+        if (/^#(?!!)/.test(blockcost[h]) && /^#(?!!)/.test(blockcost[h - 1]))
+            check("md2 T3 blockcost.sh comment " + (h + 1) + " stands alone", /Sample(?: input)?:/.test(blockcost[h - 1] + blockcost[h]), true)
     }
     var blocksSource = Source.source("ui/js/MdBlocks.js")
     check("md3u F5 figureKind sample", /\/\/ Sample input:[^\n]*mermaid[^\n]*\nfunction figureKind/.test(blocksSource), true)

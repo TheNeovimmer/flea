@@ -56,8 +56,8 @@ function referenceState() {
         hidden: {}, escaped: {}, code: {}, dropped: [] }
 }
 
-// Sample: "- > ```\n  > [id]: literal\n  > ```" matches an item, then a quote, before its fence.
-function blockPass(lines, state, emit, collect) {
+// Sample: "- > ```\n  > [id]: literal\n  > ```" matches an item, then a quote, before its fence; nested lines hold no front matter.
+function blockPass(lines, state, emit, collect, nested) {
     var frames = []
     var leaf = null
     var pending = null
@@ -227,7 +227,7 @@ function blockPass(lines, state, emit, collect) {
             send("hidden", i, text, top, display)
             continue
         }
-        var front = i === 0 ? Front.closeAt(lines) : -1
+        var front = i === 0 && nested !== true ? Front.closeAt(lines) : -1
         if (front > 0) {
             i = Front.sendFront(lines, front, send, state)
             leaf = null
@@ -344,7 +344,7 @@ function blocks(source, dir, chrome, ink) {
     var lines = Html.documentText(source).split("\n")
     var state = referenceState()
     blockPass(lines, state, undefined, true)
-    var writer = Document.writer(state, dir, chrome, ink)
+    var writer = Document.writer(state, dir, chrome, ink, blockPass)
     blockPass(lines, state, writer.project, false)
     return writer.finish()
 }

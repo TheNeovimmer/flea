@@ -50,6 +50,14 @@ function run(check) {
     check("a later chunk keeps its depths", JSON.stringify(chunks[1].depths), JSON.stringify([0, 1, 0, 0, 0, 0, 0, 0, 0]))
     check("a later chunk carries the markers of its entries", chunks[1].markers[0] + " " + chunks[1].markers[1], "33. " + bullet)
     check("every chunk's marker column is as wide as the last number's", Lists.layout(chunks[0], advance, GAP)[0].w, 3 * CHAR_PX)
+    // The numbers 68 to 99 take two digits in the first chunk and 100 to 107 three in the second, so only a carried width lines both up.
+    var wide = []
+    for (var w = 68; w <= 107; w++)
+        wide.push(w + ". item")
+    var wideChunks = Markdown.blocks(wide.join("\n") + "\n", dir, chrome, ink)
+    var widest = 4 * CHAR_PX
+    check("a chunk of narrower numbers takes the widest number's column", Lists.layout(wideChunks[0], advance, GAP)[0].w, widest)
+    check("the last chunk keeps the same column", Lists.layout(wideChunks[1], advance, GAP)[0].w, widest)
     var orphan = Lists.layout({ items: ["x"], depths: [2], markers: [bullet], gaps: [false] }, advance, GAP)
     check("a chunk that opens inside a nested list counts a disc column per level", orphan[0].x, 2 * (CHAR_PX + GAP))
 

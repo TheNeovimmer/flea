@@ -124,8 +124,22 @@ function inlineLines(kept, inlineOf) {
     return parts.join("\n")
 }
 
+// Sample input: lines "a" and "```" answer parts, prose alone answers its one text, and nothing to draw answers an empty text.
+function content(lines, inlineOf, partsOf) {
+    if (lines.join("\n").trim().length === 0)
+        return { text: "" }
+    var parts = partsOf(lines)
+    if (parts === null)
+        return { text: inlineLines(lines, inlineOf) }
+    if (parts.length === 0)
+        return { text: "" }
+    if (parts.length === 1 && parts[0].type === "run" && parts[0].maths === undefined)
+        return { text: parts[0].text }
+    return { text: "", parts: parts }
+}
+
 // One quote block per run of lines at one nesting depth; the depth shows past the first level, joined after the first block.
-function quoteBlocks(all, state, inlineOf) {
+function quoteBlocks(all, state, inlineOf, partsOf) {
     var out = []
     for (var at = 0; at < all.length; ) {
         var to = at
@@ -136,7 +150,10 @@ function quoteBlocks(all, state, inlineOf) {
         var title = at === 0 && quote.length > 0 && !quote.raw[0] ? Leaf.alertTitle(quote[0]) : null
         if (title !== null)
             quote[0] = title
-        var block = { type: "quote", text: quote.join("\n").trim().length > 0 ? inlineLines(quote, inlineOf) : "" }
+        var held = content(quote, inlineOf, partsOf)
+        var block = { type: "quote", text: held.text }
+        if (held.parts !== undefined)
+            block.parts = held.parts
         if (all[at].depth > 1)
             block.depth = all[at].depth
         if (at > 0)
@@ -147,14 +164,16 @@ function quoteBlocks(all, state, inlineOf) {
     return out
 }
 
-// The entries of one list as a block; depths, markers and gaps appear only when a nested item or a loose list needs them.
-function listBlock(event, state, inlineOf) {
+// One list as a block; depths, markers and gaps only when nesting or looseness needs them, parts when an item holds more than prose.
+function listBlock(event, state, inlineOf, partsOf) {
     var items = []
     var depths = []
     var markers = []
     var gaps = []
+    var parts = []
     var nested = false
     var loose = false
+    var holds = false
     var entries = event.builder.entries
     for (var k = 0; k < entries.length; k++) {
         var entry = entries[k]
@@ -170,7 +189,10 @@ function listBlock(event, state, inlineOf) {
         var gap = entry.list.loose
         nested = nested || entry.depth > 0 || entry.marker === ""
         loose = loose || gap
-        items.push(inlineLines(lines, inlineOf))
+        var held = content(lines, inlineOf, partsOf)
+        holds = holds || held.parts !== undefined
+        items.push(held.text)
+        parts.push(held.parts !== undefined ? held.parts : null)
         depths.push(entry.depth)
         markers.push(entry.marker)
         gaps.push(gap)
@@ -181,5 +203,7 @@ function listBlock(event, state, inlineOf) {
         block.markers = markers
         block.gaps = gaps
     }
+    if (holds)
+        block.parts = parts
     return block
 }

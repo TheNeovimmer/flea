@@ -24,6 +24,9 @@ MarkdownText 1.0 MarkdownText.qml
 MarkdownMathsText 1.0 MarkdownMathsText.qml
 MarkdownQuote 1.0 MarkdownQuote.qml
 MarkdownList 1.0 MarkdownList.qml
+MarkdownBlocks 1.0 MarkdownBlocks.qml
+MarkdownBlockView 1.0 MarkdownBlockView.qml
+MarkdownTable 1.0 MarkdownTable.qml
 MarkdownFigure 1.0 MarkdownFigure.qml
 singleton FigureService 1.0 FigureService.qml
 PreviewPdf 1.0 PreviewPdf.qml

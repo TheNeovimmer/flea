@@ -11,6 +11,9 @@ Column {
     // The paragraph gap a loose list puts between its entries.
     property int gap: 0
     property var linkGate: null
+    // The preview that sets the sizes of the blocks an item holds, and whether this list is in view for figures.
+    property Item preview: null
+    property bool inView: true
 
     spacing: 0
 
@@ -49,10 +52,26 @@ Column {
             }
 
             MarkdownText {
+                visible: !itemParts.active
                 linkGate: root.linkGate
                 width: parent.width - marker.width - parent.spacing
                 bodyPx: root.bodyPx
                 text: root.list.items[index]
+            }
+
+            // An item that holds more than prose draws its blocks in order; they load by file name since MarkdownBlocks draws lists again.
+            Loader {
+                id: itemParts
+                readonly property var parts: root.list.parts !== undefined && root.list.parts[index] ? root.list.parts[index] : []
+                active: itemParts.parts.length > 0
+                width: parent.width - marker.width - parent.spacing
+                source: itemParts.parts.length > 0 ? "MarkdownBlocks.qml" : ""
+                onLoaded: {
+                    // The preview and the view state come first: the blocks build their delegates the moment they arrive.
+                    itemParts.item.preview = Qt.binding(function () { return root.preview })
+                    itemParts.item.inView = Qt.binding(function () { return root.inView })
+                    itemParts.item.blocks = Qt.binding(function () { return itemParts.parts })
+                }
             }
         }
     }

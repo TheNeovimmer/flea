@@ -4922,6 +4922,20 @@ mathsize 2026-10-04: a display formula's ex equals the body font's x-height, so 
 a browser's 1ex does for Obsidian and GitHub), and the em rule (`bodyPx` times 0.442) stays only for a figure that reports no height. `exPx` is in both cache
 keys, so a text size or font change re-renders instead of serving the old size. `tests/markdown-mathsize.qml` pins it.
 
+mddraw r2 2026-10-04: every block kind nests. `blockPass` (`ui/js/MdBlocks.js`) re-parses an item's or a quote's lines (`nested` skips front
+matter) through the same writer (`partsOf` in `ui/js/MdDocument.js`, sharing the document's defs, tokens and cited footnotes), so a fence,
+indented code, table, heading, thematic break, display maths, an inline-maths run, a quote in an item or a list in a quote becomes a part
+drawn with its top-level recipe. Prose alone stays one `text`; otherwise a quote carries `parts` and a list `parts[k]` beside `items[k] = ""`.
+`NEST_LIMIT` (8) keeps a deep chain linear: deeper lines stay Qt Markdown. `ui/MarkdownBlocks.qml` draws a parts array and `MarkdownBlockView.qml`
+one block, each reached through a `Loader` by file name because QML rejects a static type cycle; the Loader `source` stays empty until it is
+needed, since `markdown-security` reads a Loader with a source and a Null status as an unsettled image. An empty heading or quote has no height.
+`MdChunks.js` cuts every array a list carries at the same places and gives each chunk the runs open at its edges (`carry`, `tail`, the widest
+marker per run) so a sublist at a seam keeps its text column, and a later chunk keeps the gap above its first entry. A run with inline maths sizes
+its line box and picture padding from `bodyPx` like a plain run. The spec exceptions `qt-nested` and `qt-empty-fence` are gone: `markdown-spec`
+passes 633 of 697. `markdown-nest` (`tests/markdown-nest.*`, `tests/js/mdnest.js`) pins the geometry and recipe of each nested kind and the
+zero height of an empty heading or quote; `markdown-blockcost` now draws its formulas through a stand-in figure helper and counts the drawn state
+(maths 31 objects for two distinct formulas, list 26, quote 17, each with a Loader). `ui/PreviewMarkdown.qml` is 489 lines and `tests/markdown-linearity.qml` 572 (nested-block cases), their budget rows.
+
 Measured on this Debian box through direct qjs, whose bwrap cannot run Arch's jail: cold
 spawn-to-answer 51 to 55 ms for a formula and 167 to 176 ms for a diagram, five samples each;
 warm 0 to 2.5 ms per formula and 0.9 ms per diagram; the helper peaks at 41380 to 41524 kB RSS
@@ -7779,7 +7793,7 @@ requires the place after it, and `tests/markdown-parse-count.qml` has every disk
 in the turn the first request is asked and prove the late reply is dropped, and a `parse-fallback` phase that runs `tests/preview-hunt.sh`'s scratch copy of `ui` (a worker that
 never answers, a 200 ms fallback wait, and a parser that throws on one marker) so no product seam exists for it. The chunk sizes the hunt reads are `MdLeaf.js`'s own
 `TABLE_CHUNK_ROWS` and `LIST_CHUNK_ITEMS`, and each of the four rows its pitch check compares must be found first.
-`tests/markdown-linearity.qml` (555 lines, its budget row) and `tests/markdown-preview-state.qml` bind the shipped `dropParse`, `parseNow`, `rememberScroll` and `restoreScroll` bodies to their stub roots,
+`tests/markdown-linearity.qml` (572 lines, its budget row) and `tests/markdown-preview-state.qml` bind the shipped `dropParse`, `parseNow`, `rememberScroll` and `restoreScroll` bodies to their stub roots,
 find the fallback handler from its own id so an earlier Timer is never the one read, and give the list-grid probe a closed link gate; they had failed since the previous round's `dropParse` and `linkGate`.
 
 The menu card takes every press its rows do not (038-menusink). `ui/ContextMenu.qml`'s ground closes the menu on a click, and since 0.3.8 steps the highlight, `ui/CardScroll.qml` is no longer an interactive Flickable, so nothing inside the card took a press on a disabled row, a separator or the padding and it fell to the ground, closing the menu on Taildrop's disabled row. Each frame, main and flyout, now carries one `MouseArea` over its whole area beneath the card that accepts both buttons and does nothing: it takes no hover (the rows' `HoverHandler` and the ground's tracking still see the pointer), no wheel (the card's `FastScrollHandler` still steps one row a notch) and activates nothing, while a click outside either frame still closes on release. `tests/menu-card-sink.sh` pins it with real pointer events, both buttons on a disabled row, a separator and the top padding of each frame, and prints the counted checks as one `MENUSINK PASS <n> checks` line, then `MENUSINK STATUS qs_exit=143 done=1` as its last line (the probe's `MENUSINK DONE failures=0` receipt is required once and not echoed); `ui/ContextMenu.qml` goes from its recorded 703 to 709. `ui/PathJump.qml`'s ground sits inside its frame beneath the rows with every row enabled, so its only dead points are the padding strips, which closed in 0.3.7 as well; the dialogs keep an interactive `CardScroll` and their own card sinks.
