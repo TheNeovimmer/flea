@@ -16,6 +16,9 @@ MarkdownText {
     property string accentHex: "#7aa2f7"
     property string mutedHex: ""
     property string surfaceHex: ""
+    // The fence pads a failed formula's source takes, the preview's own.
+    property int fencePadX: 0
+    property int fencePadY: 0
 
     // A formula the parser and the text disagree on is left as its code span, and asks for nothing.
     readonly property bool matched: Maths.spans(root.source).length === root.maths.length
@@ -80,6 +83,8 @@ MarkdownText {
             accentHex: root.accentHex
             mutedHex: root.mutedHex
             surfaceHex: root.surfaceHex
+            fencePadX: root.fencePadX
+            fencePadY: root.fencePadY
             fontFamily: root.font.family
             bodyPx: root.font.pixelSize
             onSvgChanged: root.landed(modelData, svg, svg !== "" || error !== "")

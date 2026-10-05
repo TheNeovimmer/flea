@@ -83,6 +83,8 @@ Item {
             accentHex: view.preview.accentHex
             mutedHex: view.preview.mutedHex
             surfaceHex: view.preview.surfaceHex
+            fencePadX: view.preview.fencePadX
+            fencePadY: view.preview.fencePadY
             font.pixelSize: view.preview.bodyPx
         }
     }
@@ -149,6 +151,8 @@ Item {
                 mutedHex: view.preview.mutedHex
                 surfaceHex: view.preview.surfaceHex
                 fallbackColor: view.preview.codeSurface
+                fencePadX: view.preview.fencePadX
+                fencePadY: view.preview.fencePadY
                 fontFamily: Theme.font.family
                 bodyPx: view.preview.bodyPx
             }

@@ -188,6 +188,8 @@ ShellRoot {
             width: 420
             visible: false
             askArmed: false
+            fencePadX: md.fencePadX
+            fencePadY: md.fencePadY
             source: "first source line\nsecond source line"
         }
 

@@ -266,7 +266,7 @@ function htmlHeading(line) {
     var rest = text.slice(open.end)
     var lower = asciiLower(rest)
     var closeName = "</h" + level
-    var closeAt = lower.lastIndexOf(closeName)
+    var closeAt = lower.indexOf(closeName)
     if (closeAt < 0)
         return null
     var close = MdHtml.readTag(text, open.end + closeAt, null)
@@ -277,12 +277,14 @@ function htmlHeading(line) {
         return null
     var inner = rest.slice(0, closeAt)
     var align = null
+    var aligned = false
     for (var i = 0; i < head.attributes.length; i++) {
         if (head.attributes[i].name === "align" && head.attributes[i].value !== null) {
+            aligned = true
             var seen = head.attributes[i].value.toLowerCase()
             if (seen === "center" || seen === "right")
                 align = seen
         }
     }
-    return { level: level, align: align, inner: inner }
+    return { level: level, align: align, aligned: aligned, inner: inner }
 }

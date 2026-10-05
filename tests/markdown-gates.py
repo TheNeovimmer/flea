@@ -142,8 +142,8 @@ ipc() {
         previewCloseState) if [ -n "${MD_GATE_NO_CENTRE:-}" ]; then printf '{"hovered":%s,"pressed":%s,"focused":%s}\\n' "$hit" "$held" "$focused"; else printf '{"hovered":%s,"pressed":%s,"focused":%s,"centre":"%s 50"}\\n' "$hit" "$held" "${MD_GATE_FOCUS_STUCK:-$focused}" "${MD_GATE_CENTRE_X:-$MD_GATE_CLOSE_X}"; fi ;;
         previewEndGap) if [[ " ${MD_GATE_FIT:-} " == *" $current_row "* ]]; then echo 0; elif [ "$scroll_y" -ge "$end_reach" ]; then echo "${MD_GATE_END_CUT:-0}"; else echo -1; fi ;;
         previewScrollY) echo "$scroll_y" ;;
-        viewContentY) echo "$scroll_y" ;;
-        viewEndY) echo 0 ;;
+        viewContentY) if [ -n "${MD_GATE_COLUMN_STUCK:-}" ] && ! $opened; then echo 100; else echo "$scroll_y"; fi ;;
+        viewEndY) echo "${MD_GATE_VIEW_END:-$scroll_max}" ;;
     esac
 }
 . "$MD_GATE_CAPTURE"
@@ -181,6 +181,12 @@ ${MD_GATE_CASE:-case_cap_markdown}
     refusal({"MD_GATE_NO_SCROLL": "1"}, "capmarkdown: the wheel did not move the view", "mdfid B4 a scroll that moves nothing is refused")
     refusal({"MD_GATE_SCROLL_FAIL": "1"}, "capmarkdown: scroll down", "mdfid B4 a failed scroll call is refused")
     refusal({"MD_GATE_END_CUT": "80"}, "capmarkdown: the last block is cut at the end of the document", "mdfid N1 a picture that grew below the end is refused")
+    # The column's end is viewEndY: a wheel that never scrolls it, or a view that stops short, is refused naming both numbers.
+    refusal({"MD_GATE_COLUMN_STUCK": "1"}, "capmarkdown: notes.md column stopped at viewContentY 100, short of viewEndY 5760", "mdfid C6 a column wheel that never scrolls is refused")
+    refusal({"MD_GATE_VIEW_END": "99999"}, "capmarkdown: notes.md column stopped at viewContentY 5760, short of viewEndY 99999", "mdfid C6 a column that stops short of its end is refused")
+    near = subprocess.run(["/bin/bash", str(capture)], env=dict(env, MD_GATE_VIEW_END="5761"), text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=PROBE_TIMEOUT_SECONDS)
+    check(near.returncode == 0 and "CAPMARKDOWN quicklook=ok" in near.stdout, "mdfid C6 a column within one pixel of viewEndY is at its end")
     refusal({"MD_GATE_TAB_DEAD": "1"}, "capmarkdown: the close button never reported focused=true", "mdfid N2 a Tab that never reaches the close mark is refused")
     refusal({"MD_GATE_FOCUS_STUCK": "true"}, "capmarkdown: the close button never reported focused=false", "mdfid N2 a close mark focused at rest is refused")
 

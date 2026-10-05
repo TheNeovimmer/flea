@@ -1,0 +1,56 @@
+.import "../../ui/js/Markdown.js" as Markdown
+.import "../../ui/js/MdHtmlBlock.js" as HtmlBlock
+.import "sourcefixture.js" as Source
+
+// HTML headings: inside a wrapper, with a picture, or beside another heading, each keeps its wrapper whole and its picture on the picture path.
+function run(check) {
+    var dir = "/home/u/docs"
+    var ink = "#c0caf5"
+    function blocks(text) { return Markdown.blocks(text, dir, "#181825", ink) }
+    function json(text) { return JSON.stringify(blocks(text)) }
+    // A run holds an opener its closer never reaches, or the other way round.
+    function balanced(list) {
+        return list.every(function (b) {
+            var text = String(b.text === undefined ? "" : b.text)
+            return (text.match(/<div\b/gi) || []).length === (text.match(/<\/div>/gi) || []).length
+        })
+    }
+    var lone = blocks('<div align="center">\n<h1>Flea</h1>\n</div>')
+    check("a heading in a lone centred wrapper is one heading block", lone.length, 1)
+    check("a heading in a lone centred wrapper keeps its level", lone[0].type + lone[0].level, "heading1")
+    check("a heading in a lone centred wrapper takes the wrapper's centre", lone[0].align, "center")
+    check("a lone wrapper's heading leaves no unmatched div", balanced(lone), true)
+    var tail = blocks('<div align="center">\n<h1>Title</h1>\n<p>x</p>\n</div>')
+    check("a wrapper's heading is a centred heading block", tail[0].type + tail[0].level + tail[0].align, "heading1center")
+    check("what the wrapper held after the heading stays centred in its wrapper", tail.length === 2 && tail[1].text, '<div align="center"><p>x</p></div>')
+    check("a wrapper with a tail leaves no unmatched div", balanced(tail), true)
+    check("a heading's own align wins over the wrapper's", blocks('<div align="center">\n<h2 align="right">T</h2>\n</div>')[0].align, "right")
+    check("an own align left wins over a centred wrapper", blocks('<div align="center">\n<h2 align="left">T</h2>\n</div>')[0].align, undefined)
+    check("a plain wrapper gives its heading no alignment", blocks('<div>\n<h1>T</h1>\n</div>')[0].align, undefined)
+    var table = blocks('<table>\n<tr><td>\n<h1>x</h1>\n</td></tr>\n</table>')
+    check("a heading in an open table stays in its run", table.every(function (b) { return b.type !== "heading" }), true)
+    var open = blocks('<div>\n<span>a\n<h1>x</h1>\n</div>')
+    check("a heading in other open HTML stays in its run", open.every(function (b) { return b.type !== "heading" }) && balanced(open), true)
+
+    var logo = blocks('<h1 align="center"><img src="logo.png" width="120"><br>Flea</h1>')
+    check("a heading's leading picture draws as an image block", logo[0].type + logo[0].url + logo[0].width, "imagefile:///home/u/docs/logo.png120")
+    check("the picture takes the heading's centre", logo[0].align, "center")
+    check("the text left over is the heading", logo.length === 2 && logo[1].type + logo[1].text + logo[1].align, "headingFleacenter")
+    check("a picture only heading leaves no heading", blocks('<h1 align="center"><img src="logo.png"></h1>').map(function (b) { return b.type }).join(), "image")
+    check("a heading picture in a link keeps its link", blocks('<h1><a href="https://x.dev/"><img src="logo.png"></a> Flea</h1>')[0].link, "https://x.dev/")
+    check("a right aligned heading keeps its picture in its text", blocks('<h1 align="right"><img src="logo.png">Flea</h1>').length, 1)
+
+    function head(line) { return HtmlBlock.htmlHeading(line) }
+    check("two headings on one line are no heading", head("<h1>a</h1><h1>b</h1>"), null)
+    check("two headings on one line with a space are no heading", head("<h1>a</h1> <h1>b</h1>"), null)
+    check("text after the closer is no heading", head("<h2>x</h2> tail"), null)
+    check("an uppercase heading is a heading", head("<H1>Flea</H1>").level, 1)
+    check("an uppercase heading keeps its inner", head("<H1>Flea</H1>").inner, "Flea")
+    check("align left answers no align", head('<h1 align="left">x</h1>').align, null)
+    check("align centre answers centre", head('<h1 align="center">x</h1>').align, "center")
+
+    // MarkdownText has no preview to ask, so its board body is its own line; it must stay the number the preview's recipe is drawn at.
+    var previewBody = /readonly property int boardBody: (\d+)/.exec(Source.source("ui/PreviewMarkdown.qml"))
+    var textBody = /readonly property real boardBodyPx: (\d+)/.exec(Source.source("ui/MarkdownText.qml"))
+    check("the chip pad's board body is the preview's", previewBody !== null && textBody !== null && previewBody[1] === textBody[1], true)
+}

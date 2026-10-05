@@ -211,12 +211,9 @@ Item {
     readonly property string fallbackBody: root.source.length > root.fallbackChars
         ? root.source.slice(0, root.fallbackChars) + "… (" + (root.source.length - root.fallbackChars) + " more)"
         : root.source
-    // The fence recipe, so fallback text sits where a fenced block does.
-    readonly property int boardBody: 14
-    readonly property int boardFencePadX: 12
-    readonly property int boardFencePadY: 8
-    readonly property int fencePadX: Math.round(root.boardFencePadX * root.bodyPx / root.boardBody)
-    readonly property int fencePadY: Math.round(root.boardFencePadY * root.bodyPx / root.boardBody)
+    // The fence recipe, so fallback text sits where a fenced block does: the host hands down the preview's own fencePadX and fencePadY.
+    property int fencePadX: 0
+    property int fencePadY: 0
     Rectangle {
         id: fallback
         visible: root.failed

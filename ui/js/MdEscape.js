@@ -23,8 +23,7 @@ for (var asciiCode = 0; asciiCode < ASCII_LIMIT; asciiCode++) {
         OTHER_PUNCT.push(String.fromCharCode(asciiCode))
 }
 
-// Qt folds U+202F as white space and reads no em in a span's font-size, so a chip pads with a no-break space in a span whose px
-// ui/MarkdownText.qml fills in from its own font (the board's 4 px at body 14); the mark is that span's opening tag, which user text never holds.
+// Qt folds U+202F and reads no em in a span's font-size, so a chip pads with a no-break space in a span whose px ui/MarkdownText.qml fills in (4 px at body 14); the mark is that span's opening tag, which user text never holds.
 var CHIP_PAD_MARK = '<span style="font-size:chippad">'
 var CHIP_PAD_HTML = CHIP_PAD_MARK + "&nbsp;</span>"
 function chipPad() {

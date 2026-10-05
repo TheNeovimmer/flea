@@ -87,6 +87,8 @@ capmarkdown_close_poll_s=0.05
 # A notch is 288 px: three reach the figures region below the quote and tables, twelve more clamp at the tail with the picture and the placeholder.
 capmarkdown_notches_mid=3
 capmarkdown_notches_end=12
+# The column is at its end when viewContentY is within this many pixels of viewEndY.
+capmarkdown_end_slack=1
 # Paragraphs of about 40 px rendered and two source lines each, so both views overflow a 2560 x 1440 card by more than the mid notches.
 capmarkdown_notes=60
 case_cap_markdown() {
@@ -388,18 +390,19 @@ capmarkdown_column_reach_end() {
         before="$(ipc viewContentY)"
         end="$(ipc viewEndY)"
         [[ "$before" =~ ^-?[0-9]+$ && "$end" =~ ^-?[0-9]+$ ]] || fail "capmarkdown: viewContentY answered [$before] viewEndY [$end] for $name"
-        (( before >= end )) && return 0
+        (( before >= end - capmarkdown_end_slack )) && return 0
         (( run < capmarkdownkinds_end_runs )) || break
         omarchy-drive scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))" >/dev/null || fail "capmarkdown: scroll down failed on $name"
         settle
         after="$(ipc viewContentY)"
         [[ "$after" =~ ^-?[0-9]+$ ]] || fail "capmarkdown: viewContentY answered [$after] for $name"
         [[ "$after" == "$before" ]] || continue
+        # A wheel run still in flight reads as stopped once; a view still short of its end after a second settle never reached it.
         settle
         after="$(ipc viewContentY)"
-        [[ "$after" != "$before" ]] || return 0
+        [[ "$after" != "$before" ]] || fail "capmarkdown: $name column stopped at viewContentY $after, short of viewEndY $(ipc viewEndY)"
     done
-    fail "capmarkdown: $name never reached its column end after $capmarkdownkinds_end_runs wheel runs"
+    fail "capmarkdown: $name never reached its column end after $capmarkdownkinds_end_runs wheel runs: viewContentY $before, viewEndY $end"
 }
 # Shoots the open document, then its tail when it is taller than the card, then closes Quick Look.
 # Sample input: previewEndGap answers 0 when the last block and its inset are whole at the top, so nothing scrolls; any other number, -1 included, means the document runs past the card.

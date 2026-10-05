@@ -45,6 +45,7 @@ import "mddraw.js" as MdDrawSuite
 import "mdnest.js" as MdNestSuite
 import "mdhtml.js" as MdHtmlSuite
 import "mdhtmlgh.js" as MdHtmlGhSuite
+import "mdhead.js" as MdHeadSuite
 import "mdhtmlrow.js" as MdHtmlRowSuite
 import "mdgates.js" as MdGatesSuite
 import "mdr7.js" as MdR7Suite
@@ -157,7 +158,7 @@ Item {
             ["focus-lines", FocusLinesSuite], ["focus-wrap", FocusWrapSuite],
             ["format", FormatSuite], ["icons", IconsSuite],
             ["jump", JumpSuite], ["jump-heldout", JumpHeldoutSuite], ["keymap", KeymapSuite], ["localsend", LocalSendSuite], ["listbudget", ListBudgetSuite], ["match", MatchSuite], ["menu", MenuSuite], ["xwnewfile", XwNewFileSuite],
-            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdliteral", MdLiteralSuite], ["mdspecfix", MdSpecFixSuite], ["mddraw", MdDrawSuite], ["mdnest", MdNestSuite], ["mdhtml", MdHtmlSuite], ["mdhtmlgh", MdHtmlGhSuite], ["mdhtmlrow", MdHtmlRowSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mdprogress", MdProgressSuite], ["markdownpictures", MarkdownPicturesSuite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite], ["navmouse", NavMouseSuite], ["mdtable", MdTableSuite],
+            ["marks", MarksSuite], ["markdown", MarkdownSuite], ["mdstructure", MdStructureSuite], ["mdliteral", MdLiteralSuite], ["mdspecfix", MdSpecFixSuite], ["mddraw", MdDrawSuite], ["mdnest", MdNestSuite], ["mdhtml", MdHtmlSuite], ["mdhtmlgh", MdHtmlGhSuite], ["mdhead", MdHeadSuite], ["mdhtmlrow", MdHtmlRowSuite], ["mdr7", MdR7Suite], ["mdround4", MdRound4Suite], ["mdprogress", MdProgressSuite], ["markdownpictures", MarkdownPicturesSuite], ["mounts", MountsSuite], ["motion", MotionSuite], ["names", NamesSuite], ["nav", NavSuite], ["crumbs", CrumbsSuite], ["devices", DevicesSuite], ["network", NetworkSuite], ["navmouse", NavMouseSuite], ["mdtable", MdTableSuite],
             ["openwith", OpenWithSuite], ["ops", OpsSuite], ["opstrash", OpsTrashSuite],
             ["palette", PaletteSuite], ["pathbar", PathBarSuite], ["places", PlacesSuite], ["placemenu", PlaceMenuSuite], ["rail", RailSuite], ["scripts", ScriptsSuite],
             ["phones", PhonesSuite],

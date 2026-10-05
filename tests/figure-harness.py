@@ -289,6 +289,8 @@ QtObject {
     }
 }
 ''')
+        for name in ("markdown-board.js", "markdown-render.js"):
+            shutil.copyfile(tree / "tests" / name, component / name)
         shutil.copyfile(tree / "tests/figure-component.qml", component / "probe.qml")
         result = subprocess.run(["qml6", str(component / "probe.qml")],
                                 env=dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_FORCE_STDERR_LOGGING="1",
