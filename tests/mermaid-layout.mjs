@@ -1,5 +1,5 @@
 // Mermaid lays out as mermaid.js does: dagre's cycle breaking in flowcharts, the mirrored boxes and message spacing of a sequence.
-import { FACES, bounds, edgePaths, groups, layered, lifelines, load, notes, num, sequences, text, texts } from "./mermaid-corpus.mjs";
+import { FACES, bounds, edgePaths, frame, groups, layered, lifelines, load, notes, num, sequences, text, texts } from "./mermaid-corpus.mjs";
 import { argv, finish } from "./js-runtime.mjs";
 
 const render = await load(argv[0]);
@@ -128,6 +128,23 @@ for (const note of groups(noteSvg, "note")) {
         check(right < first && first - right <= NOTE_BESIDE_MAX, `${name} sits left of its lifeline ${first}, ending at ${right}`);
     } else {
         check(left > first && left - first <= NOTE_BESIDE_MAX, `${name} sits right of its lifeline ${first}, starting at ${left}`);
+    }
+}
+
+// A subgraph with an edge leaving it is laid out with the whole graph, as mermaid.js lays it, so the docs example's three frames share one row; one with no edge leaving stays a block of its own.
+const SIBLING_GAP_MIN = 1;
+const source = "flowchart TB\nc1 --> a2\nsubgraph one\na1 --> a2\nend\nsubgraph two\nb1 --> b2\nend\nsubgraph three\nc1 --> c2\nend";
+const rowIds = ["one", "two", "three"];
+const rowFrames = rowIds.map((id) => frame(render(source, LAYOUT_FACE), id));
+check(rowFrames.every((f) => f !== null), "docs example: the three frames are drawn");
+if (rowFrames.every((f) => f !== null)) {
+    for (let i = 0; i < rowFrames.length; i++) {
+        for (let j = i + 1; j < rowFrames.length; j++) {
+            const [a, b] = [rowFrames[i], rowFrames[j]];
+            const along = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+            check(a[2] + SIBLING_GAP_MIN <= b[0] || b[2] + SIBLING_GAP_MIN <= a[0], `docs example: ${rowIds[i]} and ${rowIds[j]} stand side by side, not on top of each other (${a} against ${b})`);
+            check(along > 0, `docs example: ${rowIds[i]} and ${rowIds[j]} share a row, overlapping ${along.toFixed(1)} px`);
+        }
     }
 }
 

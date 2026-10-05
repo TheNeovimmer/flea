@@ -263,6 +263,26 @@ if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
     cp "$test_root/runtime/markdown-arrows.png" "$FLEA_CI_SUITE_LOGS/markdown-arrows.png" || exit 1
 fi
 
+# Every end mark of a link, flowchart and class, drawn at both ends of the first edge.
+cp tests/markdown-figures-render-ends.qml "$test_root/config/shell.qml" || exit 1
+ends_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
+    HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_BIN="$fleabin" FLEA_QJS="$qjs" FLEA_UI="$FLEA_UI" \
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
+    timeout 25 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
+printf '%s\n' "$ends_output" | grep -oE 'MARKDOWN_ENDS (MARKS|FAIL).*'
+warnings=$(printf '%s\n' "$ends_output" | grep -aE 'TypeError|ReferenceError|WARN|invalid nullptr parameter' | grep -vF "$platform_warning")
+[ -z "$warnings" ] || { printf 'FAIL end marks harness warning: %s\n' "$warnings"; exit 1; }
+expected_ends_checks=36 # Three checks for each of 12 link end cases.
+# Sample input: MARKDOWN_ENDS 36 checks, 0 failed
+if ! printf '%s\n' "$ends_output" | grep -qE "(^|: )MARKDOWN_ENDS $expected_ends_checks checks, 0 failed$"; then
+    printf 'FAIL markdown-figures-render: end marks expected %s checks, 0 failed; arrived [%s]\n' "$expected_ends_checks" "${ends_output:-<empty>}" >&2
+    exit 1
+fi
+if [ -n "${FLEA_CI_SUITE_LOGS:-}" ]; then
+    cp "$test_root/runtime/markdown-ends.png" "$FLEA_CI_SUITE_LOGS/markdown-ends.png" || exit 1
+fi
+
 md3u_output=$(timeout 45 "$qjs" tests/markdown-advfix-md3u.mjs) || { printf '%s\n' "$md3u_output"; exit 1; }
 printf '%s\n' "$md3u_output" | head -1
 printf '%s\n' "$md3u_output" | tail -1 > "$test_root/md3u-cases.json" || exit 1

@@ -31,7 +31,7 @@ export const FACES = [
     { name: "mono 0.6 bold 0.7", regular: flat(0.6), bold: flat(0.7) },
     { name: "proportional", regular: regularProportional, bold: regularProportional.map((v) => Math.round(v * BOLD_WIDENING)) }
 ];
-const theme = { bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 13 };
+export const theme = { bg: "#101315", fg: "#c0caf5", accent: "#7aa2f7", font: "monospace", bodyPx: 13 };
 
 // Graphs whose edges the layering check reads back; fixture 10 is first, then mermaid's own docs examples, cycles, and the state, class and ER layouts.
 export const layered = [
@@ -72,6 +72,10 @@ export const others = [
     ["bold headers", "classDiagram\nclass AVeryLongClassNameWiderThanTheMinimumBox {\n+id\n}\nAVeryLongClassNameWiderThanTheMinimumBox --> B"],
     ["bold entity header", "erDiagram\nA_VERY_LONG_ENTITY_NAME_FOR_THE_HEADER ||--o{ B : has\nA_VERY_LONG_ENTITY_NAME_FOR_THE_HEADER {\nint id PK\n}"],
     ["bold subgraph title", "flowchart TD\nsubgraph t [A subgraph title much wider than its one small node]\nx\nend"],
+    ["flattened frames, docs example", "flowchart TB\nc1 --> a2\nsubgraph one\na1 --> a2\nend\nsubgraph two\nb1 --> b2\nend\nsubgraph three\nc1 --> c2\nend"],
+    ["flattened nested frames", "flowchart TB\nsubgraph outer\nsubgraph inner\nm --> k\nend\nn --> m\nend\nk --> z"],
+    ["left to right subgraph title", "flowchart LR\nsubgraph t [A subgraph title much wider than its two small nodes]\nx --> y\nend"],
+    ["right to left subgraph title", "flowchart RL\nsubgraph t [A subgraph title much wider than its two small nodes]\nx --> y\nend\ny --> z"],
     ["class", "classDiagram\nclass Animal {\n+String name\n+makeSound() void\n}\nclass Duck {\n+swim() void\n}\nAnimal <|-- Duck : extends"],
     ["er", "erDiagram\nCUSTOMER ||--o{ ORDER : places\nCUSTOMER {\nstring name PK\nstring email\n}\nORDER {\nint number PK\n}"]
 ];
@@ -173,4 +177,11 @@ export function lifelines(svg) {
 // Sample input: <svg width="300" height="200" viewBox="0 0 300 200"> reads [0, 0, 300, 200].
 export function view(svg) {
     return svg.match(/<svg\b[^>]*>/)[0].match(/viewBox="([^"]*)"/)[1].split(/\s+/).map(Number);
+}
+
+// Sample input: <g class="subgraph" data-id="one" data-label="one">\n  <rect x="1" y="1" width="92" height="97" .../> reads [1, 1, 93, 98].
+export function frame(svg, id) {
+    const found = svg.match(new RegExp('<g class="subgraph" data-id="' + id + '"[^>]*>\\s*<rect\\b[^>]*>'));
+    const rect = found ? found[0].match(/<rect\b[^>]*>/)[0] : "";
+    return found ? [num(rect, "x"), num(rect, "y"), num(rect, "x") + num(rect, "width"), num(rect, "y") + num(rect, "height")] : null;
 }

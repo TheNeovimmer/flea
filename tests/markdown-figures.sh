@@ -153,13 +153,15 @@ for runner in "${js_runners[@]}"; do
         echo "markdown-figures.sh: $figure_test under $(basename "$runner")"
         "$runner" "tests/$figure_test.mjs" || exit 1
     done
-    # A checkout path with a space must not break module resolution, so one test runs from a scratch copy at such a path.
-    spaced="$test_root/a tree"
-    mkdir -p "$spaced/ui/js" "$spaced/ui/vendor" "$spaced/tests" || exit 1
-    cp ui/js/FigureWorker.mjs "$spaced/ui/js/" && cp ui/vendor/mermaid.mjs "$spaced/ui/vendor/" || exit 1
-    cp tests/js-runtime.mjs tests/mermaid-corpus.mjs tests/mermaid-layout.mjs "$spaced/tests/" || exit 1
-    echo "markdown-figures.sh: mermaid-layout from a path with a space under $(basename "$runner")"
-    "$runner" "$spaced/tests/mermaid-layout.mjs" || exit 1
+    # A checkout path with a space, a percent sign or a literal %20 must not break module resolution or be decoded, so one test runs from a scratch copy at each.
+    for spaced_name in "a tree" "50% tree" "a%20b tree"; do
+        spaced="$test_root/$spaced_name"
+        mkdir -p "$spaced/ui/js" "$spaced/ui/vendor" "$spaced/tests" || exit 1
+        cp ui/js/FigureWorker.mjs "$spaced/ui/js/" && cp ui/vendor/mermaid.mjs "$spaced/ui/vendor/" || exit 1
+        cp tests/js-runtime.mjs tests/mermaid-corpus.mjs tests/mermaid-layout.mjs "$spaced/tests/" || exit 1
+        echo "markdown-figures.sh: mermaid-layout from the path '$spaced_name' under $(basename "$runner")"
+        "$runner" "$spaced/tests/mermaid-layout.mjs" || exit 1
+    done
 done
 
 if ! FLEA_QJS="$qjs" python3 "$test_root/drive.py" "${engine[@]}" "$test_root"; then

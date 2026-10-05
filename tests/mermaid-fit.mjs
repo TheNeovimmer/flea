@@ -1,5 +1,5 @@
 // No Mermaid label overflows: each label, measured as characters times the font's advance times its size, fits its shape and its lifelines.
-import { ARROW_LABEL_PAD, FACES, bounds, extent, groups, labelWidth, layered, lifelines, load, notes, num, others, sequences, text, texts, view } from "./mermaid-corpus.mjs";
+import { ARROW_LABEL_PAD, FACES, bounds, extent, groups, labelWidth, layered, lifelines, load, notes, num, others, sequences, text, texts, theme, view } from "./mermaid-corpus.mjs";
 import { argv, finish } from "./js-runtime.mjs";
 
 const render = await load(argv[0]);
@@ -94,6 +94,9 @@ for (const face of FACES) {
                     check(left >= rect[0] - EPSILON && right <= rect[2] + EPSILON, `${name}${tag}: ${kind} "${t.string}" stays inside its box ${rect[0].toFixed(1)} to ${rect[2].toFixed(1)}`);
                     rows.set(t.y, [...(rows.get(t.y) ?? []), [left, right, t.string]]);
                 }
+                // The size table is the theme font's, so a row drawn in any other face would be sized with the wrong table.
+                for (const m of box.body.matchAll(/<(?:text|tspan)\b[^>]*>/g))
+                    check(text(m[0], "font-family") === theme.font, `${name}${tag}: ${kind} row text is drawn in the theme font ${theme.font}, got ${text(m[0], "font-family")}`);
                 for (const [, row] of rows) {
                     row.sort((a, b) => a[0] - b[0]);
                     for (let i = 1; i < row.length; i++)

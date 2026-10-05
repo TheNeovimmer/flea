@@ -9,9 +9,9 @@ const childProcess = underNode ? await import("node:child_process") : null;
 // The command line after the script name.
 export const argv = underNode ? process.argv.slice(2) : scriptArgs.slice(1);
 
-// Sample input: file:///tmp/a%20b/x.mjs reads /tmp/a b/x.mjs, the percent escapes decoded once.
+// Sample input: node reports file:///tmp/a%20b/x.mjs for /tmp/a b/x.mjs; quickjs-ng reports file:///tmp/a b/x.mjs, raw, so only node's form is decoded.
 export function pathOfUrl(fileUrl) {
-    return decodeURIComponent(fileUrl.replace(/^file:\/\//, ""));
+    return underNode ? url.fileURLToPath(fileUrl) : fileUrl.replace(/^file:\/\//, "");
 }
 
 // Sample input: ("/a/b", "../c/./d") answers /a/c/d; an absolute second part wins.

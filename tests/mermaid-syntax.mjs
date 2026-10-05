@@ -1,5 +1,5 @@
 // Mermaid's flowchart syntax reads as mermaid.js reads it: every documented link form, and which subgraph a node belongs to.
-import { FACES, bounds, groups, load, num, text } from "./mermaid-corpus.mjs";
+import { FACES, bounds, frame, groups, load, num, text } from "./mermaid-corpus.mjs";
 import { argv, finish } from "./js-runtime.mjs";
 
 const render = await load(argv[0]);
@@ -105,12 +105,6 @@ const invisibleBoxes = new Map(groups(invisible, "node").map((g) => [text(g.attr
 check(invisibleBoxes.has("B") && invisibleBoxes.get("A")[3] <= invisibleBoxes.get("B")[1] + EPSILON, "an invisible link still ranks B below A");
 
 // A node belongs to the first subgraph whose block closes with it named, as mermaid's flowDb keeps it; an earlier mention outside any block does not count.
-// Sample input: <g class="subgraph" data-id="one" data-label="one">\n  <rect x="1" y="1" width="92" height="97" .../> reads [1, 1, 93, 98].
-function frame(svg, id) {
-    const found = svg.match(new RegExp('<g class="subgraph" data-id="' + id + '"[^>]*>\\s*<rect\\b[^>]*>'));
-    const rect = found ? found[0].match(/<rect\b[^>]*>/)[0] : "";
-    return found ? [num(rect, "x"), num(rect, "y"), num(rect, "x") + num(rect, "width"), num(rect, "y") + num(rect, "height")] : null;
-}
 const subgraphs = [
     ["docs example", "flowchart TB\nc1 --> a2\nsubgraph one\na1 --> a2\nend\nsubgraph two\nb1 --> b2\nend\nsubgraph three\nc1 --> c2\nend",
         { one: ["a1", "a2"], two: ["b1", "b2"], three: ["c1", "c2"] }],
@@ -134,6 +128,19 @@ for (const [name, source, members] of subgraphs) {
             const inside = b[0] >= outline[0] - EPSILON && b[1] >= outline[1] - EPSILON && b[2] <= outline[2] + EPSILON && b[3] <= outline[3] + EPSILON;
             check(inside === nodes.includes(node), `${name}: ${node} ${inside ? "sits in" : "sits outside"} subgraph ${id}, want ${nodes.includes(node) ? "inside" : "outside"}`);
         }
+    }
+}
+// A later bare mention of a node keeps the shape and label its first definition gave it, as mermaid.js keeps them.
+const mentions = [
+    ["a bare mention after a diamond", "flowchart TD\nA[Start] --> B{Is it?}\nB --> C", { B: ["diamond", "Is it?"], C: ["rectangle", "C"] }],
+    ["docs link length, D --> B after the diamond", "flowchart TD\nA[Start] --> B{Is it?}\nB -->|Yes| C[OK]\nC --> D[Rethink]\nD --> B\nB ----->|No| E[End]", { B: ["diamond", "Is it?"], D: ["rectangle", "Rethink"] }]
+];
+for (const [name, source, expected] of mentions) {
+    const svg = render(source, face);
+    for (const [id, [shape, label]] of Object.entries(expected)) {
+        const node = groups(svg, "node").find((g) => text(g.attrs, "data-id") === id);
+        check(node !== undefined && text(node.attrs, "data-shape") === shape && text(node.attrs, "data-label") === label,
+            `${name}: ${id} keeps ${shape} "${label}", got ${node === undefined ? "nothing" : text(node.attrs, "data-shape") + ' "' + text(node.attrs, "data-label") + '"'}`);
     }
 }
 console.log(`mermaid-syntax: ${checks} check(s), ${failures} failed`);
