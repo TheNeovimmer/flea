@@ -50,7 +50,7 @@ function geometry(table, avail, tx) {
     var cells = cellsOf(table).map(function (cell) {
         var at = cell.mapToItem(table, 0, 0)
         return { text: cell.text, x: Math.round(at.x), y: Math.round(at.y), w: Math.round(cell.width), h: Math.round(cell.height),
-            content: Math.round(cell.contentWidth), lines: Math.round(cell.contentHeight / cell.box) }
+            content: Math.round(cell.contentWidth), lines: Math.round(cell.contentHeight / cell.box), align: cell.horizontalAlignment }
     })
     return { measurers: all(table, "measurer").map(function (m) { return { text: m.text, w: Math.round(m.implicitWidth) } }), w: Math.round(table.width), h: Math.round(table.height), tx: tx, avail: Math.round(avail), glyph: table.glyphPx, gap: table.cellGap, cells: cells }
 }
@@ -71,7 +71,13 @@ function fitError(geo) {
     return ""
 }
 
-// Blank when every cell's drawn text ends a full gap before the next cell in its row, else the first overlap.
+// Where a cell's widest line starts and ends: Qt places it by the cell's alignment, so an overflowing right cell starts left of its x.
+function inkSpan(cell) {
+    var start = cell.align === Qt.AlignRight ? cell.w - cell.content : cell.align === Qt.AlignHCenter ? (cell.w - cell.content) / 2 : 0
+    return { start: cell.x + start, end: cell.x + start + cell.content }
+}
+
+// Blank when every cell's drawn text ends a full gap before the next cell's drawn text in its row, else the first overlap.
 function gapError(geo) {
     var rows = {}
     for (var i = 0; i < geo.cells.length; i++) {
@@ -83,8 +89,10 @@ function gapError(geo) {
     for (var y in rows) {
         var row = rows[y].sort(function (a, b) { return a.x - b.x })
         for (var k = 0; k + 1 < row.length; k++) {
-            if (row[k].x + row[k].content + geo.gap > row[k + 1].x + TOLERANCE)
-                return "row at y " + y + " draws text to " + (row[k].x + row[k].content) + " with " + (row[k + 1].x - row[k].x - row[k].content) + " px before the next cell, not " + geo.gap
+            var ink = inkSpan(row[k])
+            var next = inkSpan(row[k + 1])
+            if (ink.end + geo.gap > next.start + TOLERANCE)
+                return "row at y " + y + " draws text to " + ink.end + " with " + (next.start - ink.end) + " px before the next cell's text, not " + geo.gap
         }
     }
     return ""
