@@ -14,6 +14,7 @@ ShellRoot {
     readonly property string fixture: Quickshell.env("QLFF_DIR")
     // Steps "name:expect:via": expect inline (content in the card's first frame), async (no blocking read), rest (no read) or capped (a stale row's file read to the cap).
     readonly property var steps: Quickshell.env("QLFF_STEPS").split(",").map(function (s) { var p = s.split(":"); return { name: p[0], expect: p[1], via: p[2] || "space" } })
+    // A storage class the leg forces, or "unknown" to hold the pane before its class reply (storageKnown false, class "").
     readonly property string forcedClass: Quickshell.env("QLFF_CLASS")
     readonly property bool realKey: Quickshell.env("QLFF_MODE") === "key"
     // Polls of a quiet window before a step starts, so the previous close and the listing are done.
@@ -54,6 +55,17 @@ ShellRoot {
     function fail(why) { root.failures++; root.log("FAIL " + why) }
     function pane() { return body.item ? body.item.currentPane : null }
     function pv() { return root.pane() ? root.pane().preview : null }
+    // The class is forced while Quick Look's prepare is held (resting false), so no rest can read under the backend's own answer.
+    function forceClass() {
+        var pane = root.pane()
+        if (root.forcedClass === "" || !pane) return
+        if (root.forcedClass === "unknown") {
+            if (pane.storageClass !== "") pane.storageClass = ""
+            if (pane.storageKnown) pane.storageKnown = false
+        } else if (pane.storageClass !== root.forcedClass) {
+            pane.storageClass = root.forcedClass
+        }
+    }
     function cur() { return root.steps[root.step] }
     function target() { return root.fixture + "/" + root.cur().name }
     function indexOf(name) {
@@ -232,12 +244,20 @@ ShellRoot {
                 return
             }
             var pane = root.pane()
+            // The first poll that finds the prepare holds it, long before a listing and its rest can complete.
+            if (root.stage === 0 && pane && root.pv() && root.forcedClass !== "" && !root.prepare) {
+                var held = root.find(root.pv(), "QuickLookPrepare")
+                if (held) { held.resting = false; root.prepare = held }
+            }
             if (root.stage === 0) {
                 if (!pane || pane.listInFlight || pane.listingState !== "ready" || pane.total < 2 || !pane.storageKnown) return
                 root.keys = Qt.createQmlObject("import QtTest; TestEvent {}", pane.listArea)
-                root.prepare = root.find(root.pv(), "QuickLookPrepare")
+                root.prepare = root.prepare || root.find(root.pv(), "QuickLookPrepare")
                 if (!root.prepare) { root.fail("the preview has no QuickLookPrepare"); root.finish(); return }
-                if (root.forcedClass !== "") pane.storageClass = root.forcedClass
+                root.forceClass()
+                // The class is forced, so the held prepare rests again and the cursor's rest starts over under it.
+                root.prepare.resting = true
+                root.prepare.moved()
                 root.answerControl()
                 root.readsBefore = root.prepare.reads
                 root.stage = 1
@@ -245,7 +265,7 @@ ShellRoot {
                 return
             }
             // The backend's own class answer never wins over the one the leg forces.
-            if (root.forcedClass !== "" && pane.storageClass !== root.forcedClass) pane.storageClass = root.forcedClass
+            root.forceClass()
             if (sweepTimer.running) return
             if (root.stage === 1) {
                 var step = root.cur()
@@ -254,8 +274,8 @@ ShellRoot {
                 if (step.via === "move" ? !open : open) { root.quiet = 0; return }
                 var row = pane.rowFor(pane.cursorIndex)
                 if (step.via !== "move" && (!row || row.n !== step.name)) {
-                    // A capped step's row still says 900 bytes, as a listing does for a file that grew since.
-                    if (step.expect === "capped") pane.rowFor(root.indexOf(step.name)).s = 900
+                    // A capped or rest step's row says 900 bytes, as a listing does for a file that grew since, so only the file's own type can refuse it.
+                    if (step.expect === "capped" || step.expect === "rest") pane.rowFor(root.indexOf(step.name)).s = 900
                     pane.cursorIndex = root.indexOf(step.name)
                     root.quiet = 0
                     return

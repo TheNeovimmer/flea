@@ -289,7 +289,7 @@ Item {
     function show(newPath, newIcon, newSize, newKind, newThumb, newRow) {
         var row = root.pane ? root.pane.rowFor(newRow) : null
         var named = row && root.pane.join(root.pane.path, row.n) === newPath
-        root.inlineMarkdownPath = named && Prepared.readsInline(row, root.pane.storageClass) ? newPath : ""
+        root.inlineMarkdownPath = named && Prepared.readsInline(row, root.pane.storageClass, root.pane.storageKnown) ? newPath : ""
         root.kind = Kinds.quickLookKind(newIcon, newPath)
         // A pane of another kind goes before the path moves, or it tries to open a file it cannot draw: an image
         // pane handed a video logged "Unsupported image format" on every move from a picture to a clip.

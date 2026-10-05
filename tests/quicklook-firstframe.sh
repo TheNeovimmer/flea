@@ -90,8 +90,16 @@ run_leg order "a-notes.md:inline,b-big.md:async,a-notes.md:inline,c-mid.md:async
 for class in network phone usb; do
     run_leg "class-$class" "a-notes.md:async,d-small.md:async" "$class" 1 "" 60
 done
-# A cursor resting on the pipe reads nothing: a read of it would never return, so this leg ends on its own timeout when the guard is gone.
+# A folder whose class reply has not landed reads nothing at rest and nothing inside the key: unknown is never spent as local.
+run_leg unknown "a-notes.md:async,d-small.md:async" unknown 1 "" 60
+# A pipe whose stale row lists 900 bytes: only its file type refuses it, so a head child blocked on its open ends the leg at the timeout.
 run_leg pipe "e-pipe.md:rest" "" 1 "" 20
+# A head child the leg's qs left blocked on the pipe is a failure, and is killed by its own unique path.
+if pgrep -f -- "head -c [0-9]* -- $test_root/fixture/e-pipe.md" >/dev/null; then
+    pkill -f -- "head -c [0-9]* -- $test_root/fixture/e-pipe.md"
+    printf 'FAIL quicklook-firstframe: pipe leg left a head child blocked on the FIFO\n'
+    failures=$((failures + 1))
+fi
 # A row that lists 900 bytes for a 300 KB file reads only up to the cap, and nothing is prepared from it.
 run_leg capped "c-mid.md:capped" "" 1 "" 60
 printf 'quicklook-firstframe: %s legs, %s failed\n' "$legs" "$failures"

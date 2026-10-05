@@ -10,10 +10,10 @@ var MAX_BYTES = 65536
 var S_IFMT = 0xF000
 var S_IFREG = 0x8000
 
-// Sample input: a 900 byte regular "a.md" row on class "" answers true; a named pipe row (size 0) or class "network" answers false.
-// Only a regular local file under MAX_BYTES is read ahead or inside the key; cifs, nfs and listed FUSE shares classify "network" in extclass.rs.
-function readsInline(row, storageClass) {
-    if (!row || row.d || ExtThumbs.present(storageClass) || !Kinds.isMarkdown(row.n))
+// Sample input: a 900 byte regular "a.md" row on class "" with the class known answers true; a named pipe row, class "network" or an unknown class answers false.
+// Only a regular local file under MAX_BYTES in a folder whose class has landed is read ahead or inside the key; cifs, nfs and listed FUSE shares classify "network" in extclass.rs.
+function readsInline(row, storageClass, storageKnown) {
+    if (!row || row.d || !storageKnown || ExtThumbs.present(storageClass) || !Kinds.isMarkdown(row.n))
         return false
     return (row.p & S_IFMT) === S_IFREG && row.s > 0 && row.s <= MAX_BYTES
 }

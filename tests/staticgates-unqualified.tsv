@@ -835,8 +835,8 @@ ui/PreviewSwap.qml	191	root	Declared QML id; component context access is valid a
 ui/PreviewSwap.qml	193	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	194	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	196	root	Declared QML id; component context access is valid at runtime.
-ui/QuickLookPrepare.qml	53	root	Declared QML id; component context access is valid at runtime.
-ui/QuickLookPrepare.qml	65	root	Declared QML id; component context access is valid at runtime.
+ui/QuickLookPrepare.qml	54	root	Declared QML id; component context access is valid at runtime.
+ui/QuickLookPrepare.qml	66	root	Declared QML id; component context access is valid at runtime.
 ui/RendererRetry.qml	9	Quickshell	Quickshell import exports this runtime singleton or enum.
 ui/Row.qml	91	Util	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Row.qml	95	Util	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
@@ -2048,8 +2048,8 @@ ui/PreviewSwap.qml	193	root	Declared QML id; component context access is valid a
 ui/PreviewSwap.qml	194	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	194	root	Declared QML id; component context access is valid at runtime.
 ui/PreviewSwap.qml	196	root	Declared QML id; component context access is valid at runtime.
-ui/QuickLookPrepare.qml	53	root	Declared QML id; component context access is valid at runtime.
-ui/QuickLookPrepare.qml	65	root	Declared QML id; component context access is valid at runtime.
+ui/QuickLookPrepare.qml	54	root	Declared QML id; component context access is valid at runtime.
+ui/QuickLookPrepare.qml	66	root	Declared QML id; component context access is valid at runtime.
 ui/Row.qml	91	Util	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Row.qml	95	Util	qs.Commons exports this singleton; qmllint cannot resolve the shell module.
 ui/Row.qml	113	Style	qs.Commons exports this singleton; qmllint cannot resolve the shell module.

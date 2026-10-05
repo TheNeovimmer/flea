@@ -33,6 +33,7 @@ Item {
         function onCursorIndexChanged() { root.moved() }
         function onRowsChanged() { root.moved() }
         function onListInFlightChanged() { root.moved() }
+        function onStorageKnownChanged() { root.moved() }
     }
 
     function moved() {
@@ -71,7 +72,7 @@ Item {
         if (!root.resting || !pane || pane.listInFlight)
             return
         var row = pane.rowFor(pane.cursorIndex)
-        if (!Prepared.readsInline(row, pane.storageClass))
+        if (!Prepared.readsInline(row, pane.storageClass, pane.storageKnown))
             return
         root.reads++
         var request = readerComponent.createObject(root, { seq: root.seq, path: pane.join(pane.path, row.n) })
