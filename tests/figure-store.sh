@@ -123,6 +123,7 @@ if [ "\$1" = "--figure-store" ]; then
         exec sleep 120
     elif [ ! -e "$test_root/slow-used" ]; then
         : > "$test_root/slow-used"
+        # Sample input: {"op":"get","id":4,"key":"..."} answers {"id":4,"miss":true} and every line, puts included, is kept for the replay.
         tee "$test_root/slow-lines" | sed -u -n 's/.*"id":\([0-9]*\).*/{"id":\1,"miss":true}/p'
         sleep 4
         exec "$fleabin" "\$@" < "$test_root/slow-lines"
