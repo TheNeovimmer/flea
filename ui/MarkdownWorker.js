@@ -74,13 +74,19 @@ var HtmlImage = MdHtmlImage;
 var HtmlBlock = MdHtmlBlock;
 
 WorkerScript.onMessage = function (msg) {
+    // Liveness is the pane's protocol: only a request carrying a head field is acked and beaten, other askers see full replies alone.
+    var live = msg.head !== undefined
+    if (live)
+        WorkerScript.sendMessage({ seq: msg.seq, ack: true });
     var blocks = [];
     var error = '';
     try {
         // A first parse of a file sends its head ahead, so the first screen draws while the rest is still parsing.
         blocks = MdBlocks.blocks(msg.source, msg.dir, msg.chrome, msg.ink, msg.head, function (head) {
             WorkerScript.sendMessage({ seq: msg.seq, blocks: head, error: '', partial: true });
-        });
+        }, live ? function () {
+            WorkerScript.sendMessage({ seq: msg.seq, progress: true });
+        } : undefined);
     } catch (e) {
         error = String(e);
     }

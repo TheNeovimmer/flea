@@ -97,10 +97,12 @@ QtObject {
         const parsed = [];
         const Markdown = { blocks: text => { parsed.push(text); return ['fallback']; }, dirOf: () => '/doc', HEAD_BLOCKS: 96,
             deepHead: text => ({ deep: text.startsWith('DEEP') }), deepBlocks: () => [{ type: 'deep' }] };
-        const parseFallback = { restart() {}, stop() {} };
+        const parseFallback = { restarts: 0, restart() { parseFallback.restarts++; }, stop() {} };
         const parserLoader = { active: false, item: { sendMessage() {} } };
         const ask = new Function('root', 'file', 'Markdown', 'parseFallback', 'parserLoader', body('function askParse()'));
-        const reply = new Function('root', 'messageObject', body('function landed(messageObject)'));
+        const replyTimer = parseFallback;
+        const reply = new Function('root', 'messageObject', 'parseFallback', body('function landed(messageObject)'));
+        // The fallback a live worker holds off: every proof of life restarts it, a full reply never does.
         // The product's own dropParse, parseNow, rememberScroll and restoreScroll bodies, bound to each stub root; the list is an empty stub.
         const drop = new Function('root', body('function dropParse()'));
         const landing = new Function('root', 'Markdown', 'text', 'dir', 'chrome', 'ink', 'deep', body('function parseNow('));
@@ -127,34 +129,42 @@ QtObject {
         file = { loaded: false, text: () => root.rawText };
         root.askParse = () => ask(root, file, Markdown, parseFallback, parserLoader);
         new Function('root', 'reloadCoalesce', body('    onPathChanged: {'))(root, { stop() {} });
-        reply(root, { seq: 5, blocks: ['A'], error: '' });
+        reply(root, { seq: 5, blocks: ['A'], error: '' }, replyTimer);
         check(root.blockList.length === 0, 'F11 unloaded B rejects A worker reply');
         root = wired({ parseSeq: 5, parsing: true, askedText: 'B', askedDir: '/doc', path: '/doc/B.md', blockList: [] });
         fallback(root, Markdown);
-        reply(root, { seq: 5, blocks: ['late'], error: '' });
+        reply(root, { seq: 5, blocks: ['late'], error: '' }, replyTimer);
         check(root.blockList[0] === 'fallback', 'F10 fallback rejects late worker reply');
         root = wired({ active: true, tooLarge: false, parseSeq: 5, rawText: 'small', workerThreshold: 65536,
             path: '/doc/small.md', blockList: [] });
         file.loaded = true;
         ask(root, file, Markdown, parseFallback, parserLoader);
-        reply(root, { seq: 5, blocks: ['late'], error: '' });
+        reply(root, { seq: 5, blocks: ['late'], error: '' }, replyTimer);
         check(!parserLoader.active && root.blockList[0] === 'fallback'
             && root.appliedSeq === root.parseSeq && !root.parsing, 'small parse stays inline and rejects late worker reply');
         root.rawText = 'x'.repeat(root.workerThreshold + 1);
         let sent;
         parserLoader.item.sendMessage = message => { sent = message; };
         ask(root, file, Markdown, parseFallback, parserLoader);
-        reply(root, { seq: sent.seq, blocks: ['worker'], error: '' });
+        reply(root, { seq: sent.seq, blocks: ['worker'], error: '' }, replyTimer);
         check(parserLoader.active && root.parsedOffThread && root.blockList[0] === 'worker'
             && root.appliedSeq === root.parseSeq, 'large parse still sends and lands through the worker');
         root.blockList = [];
         root.rawText += 'y';
         ask(root, file, Markdown, parseFallback, parserLoader);
         check(sent.head === Markdown.HEAD_BLOCKS, 'a first parse asks the worker for the head');
-        reply(root, { seq: sent.seq, blocks: ['head'], error: '', partial: true });
+        reply(root, { seq: sent.seq, blocks: ['head'], error: '', partial: true }, replyTimer);
         check(root.blockList[0] === 'head' && root.parsing && root.appliedSeq !== root.parseSeq, 'the head draws while the parse still runs');
-        reply(root, { seq: sent.seq, blocks: ['head', 'tail'], error: '' });
-        check(root.blockList.length === 2 && !root.parsing && root.appliedSeq === root.parseSeq, 'the whole parse lands over the head');
+        const heldRestarts = replyTimer.restarts;
+        reply(root, { seq: sent.seq, ack: true }, replyTimer);
+        check(replyTimer.restarts === heldRestarts + 1 && root.parsing, 'a worker ack holds the parse and restarts the fallback');
+        reply(root, { seq: sent.seq, progress: true }, replyTimer);
+        check(replyTimer.restarts === heldRestarts + 2 && root.parsing, 'worker progress holds the parse while it works');
+        reply(root, { seq: sent.seq, blocks: ['head'], error: '', partial: true }, replyTimer);
+        check(replyTimer.restarts === heldRestarts + 3 && root.blockList[0] === 'head', 'the head restarts the fallback too');
+        reply(root, { seq: sent.seq, blocks: ['head', 'tail'], error: '' }, replyTimer);
+        check(root.blockList.length === 2 && !root.parsing && root.appliedSeq === root.parseSeq
+            && replyTimer.restarts === heldRestarts + 3, 'the whole parse lands over the head without restarting the fallback');
         root.rawText += 'z';
         ask(root, file, Markdown, parseFallback, parserLoader);
         check(sent.head === 0, 'a reparse with blocks drawn asks for no head');
@@ -235,8 +245,8 @@ QtObject {
         if (mutant === true && name === "MdHtml.js")
             code = code.replace(/    if \(dead !== undefined && dead !== null && i < dead.tagDead\)\n        return null\n/, "");
         if (mutant === "suffix" && name === "MdBlocks.js")
-            code = code.replace("function blocks(source, dir, chrome, ink, headCount, onHead) {",
-                "function blocks(source, dir, chrome, ink, headCount, onHead) {\n"
+            code = code.replace("function blocks(source, dir, chrome, ink, headCount, onHead, onProgress) {",
+                "function blocks(source, dir, chrome, ink, headCount, onHead, onProgress) {\n"
                 + "    var suffixSink = 0;\n"
                 + "    for (var i = 0; i < source.length; i++) {\n"
                 + "        suffixSink += source.substring(i).lastIndexOf('z');\n"

@@ -13,6 +13,8 @@ var CODE_INDENT = 4
 var MIN_RULE_MARKS = 3
 var MAX_RULE_INDENT = 3
 var LIST_INTERRUPT_START = 1
+// A working parse proves it every few thousand block-pass events, so the pane's fallback waits for silence, never for speed.
+var PROGRESS_EVENTS = 4000
 // A document nesting containers deeper than this is not rendered: blocks answers one sentinel and the pane shows the source.
 var NESTING_LIMIT = 32
 var SETEXT_MARK = /^(\s*)([=-])/
@@ -59,12 +61,15 @@ function referenceState() {
 }
 
 // Sample: "- > ```\n  > [id]: literal\n  > ```" matches an item, then a quote, before its fence; nested lines hold no front matter.
-function blockPass(lines, state, emit, collect, nested) {
+function blockPass(lines, state, emit, collect, nested, onProgress) {
     var frames = []
     var leaf = null
     var pending = null
     var serial = 0
     var lastQuote = -1
+    // Zero disables the heartbeat: collecting passes and synchronous parses never beat.
+    var beatEvery = onProgress !== undefined && collect !== true ? PROGRESS_EVENTS : 0
+    var sinceBeat = 0
     // Leading frames now open that share frame 0's type (items or quotes), where the line's text starts after them, and the frames found open.
     var lead = { n: 0, here: 0, lazy: false, retained: 0, at: 0, pad: 0, col: 0, raw: "" }
     function send(kind, index, text, top, display, info) {
@@ -72,6 +77,14 @@ function blockPass(lines, state, emit, collect, nested) {
             emit({ type: "line", kind: kind, index: index, text: text,
                 outer: top, display: display, info: info || "", chain: frames, lead: lead,
                 figureKind: kind === "fenceOpen" ? figureKind(info) : "" })
+        // A render pass with a heartbeat proves it is moving every few thousand sends.
+        if (beatEvery !== 0) {
+            sinceBeat++
+            if (sinceBeat >= beatEvery) {
+                sinceBeat = 0
+                onProgress()
+            }
+        }
     }
     function finishNote() {
         if (pending !== null && pending.note !== undefined)
@@ -346,14 +359,15 @@ function collectReferences(source) {
     return state
 }
 
-function blocks(source, dir, chrome, ink, headCount, onHead) {
+function blocks(source, dir, chrome, ink, headCount, onHead, onProgress) {
     var lines = Html.documentText(source).split("\n")
     var state = referenceState()
     blockPass(lines, state, undefined, true)
     if (state.deep === true)
         return [{ type: "deep", limit: NESTING_LIMIT }]
     var writer = Document.writer(state, dir, chrome, ink, blockPass)
-    blockPass(lines, state, onHead !== undefined && headCount > 0 ? writer.headed(headCount, onHead) : writer.project, false)
+    var project = onHead !== undefined && headCount > 0 ? writer.headed(headCount, onHead) : writer.project
+    blockPass(lines, state, project, false, undefined, onProgress)
     return writer.finish()
 }
 
