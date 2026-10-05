@@ -66,6 +66,16 @@ ShellRoot {
                 reached = true
         }
         shell.log("source chars=" + first + " total=" + md.rawText.length + " endlaid=" + md.sourceChars + " lastline=" + reached)
+        // Every chunk built in turn, put back with the newlines its cut dropped, is the file exactly.
+        var starts = list.starts
+        var joined = ""
+        for (var c = 0; c < starts.length; c++) {
+            list.positionViewAtIndex(c, ListView.Beginning)
+            list.forceLayout()
+            var piece = String(list.itemAtIndex(c).label.text)
+            joined += piece + (piece.length < (c + 1 < starts.length ? starts[c + 1] : md.rawText.length) - starts[c] ? "\n" : "")
+        }
+        shell.log("source roundtrip chunks=" + starts.length + " same=" + (joined === md.rawText))
         shell.done = true
         shell.quit()
     }

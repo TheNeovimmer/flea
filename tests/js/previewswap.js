@@ -69,6 +69,7 @@ function run(check) {
     check("interim shown is whole", PreviewSwap.lookReady("loading", false, false, false, true), true)
     check("interim over a PDF is whole too", PreviewSwap.lookReady("loading", true, false, false, true), true)
     check("a Markdown head drawn while the parse runs is whole", PreviewSwap.lookReady("loading", false, false, false, false, true), true)
+    check("a reparse of an open document keeps its drawn screen shown while its status loads", PreviewSwap.lookReady("loading", false, false, false, false, true), true)
     check("a Markdown pane with no head drawn still waits", PreviewSwap.lookReady("loading", false, false, false, false, false), false)
     check("without one a loading image still waits", PreviewSwap.lookReady("loading", false, false, false, false), false)
     check("an interim not yet visible at its rect still waits",

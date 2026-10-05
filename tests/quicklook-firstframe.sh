@@ -57,7 +57,7 @@ Another paragraph with enough words to take a second line in a narrow frame, so 
 DOC
 # A 1x1 PNG the document's pictures name, so no read of a missing file muddies a leg's log.
 base64 -d > "$test_root/fixture/pixel.png" <<'PNG'
-iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==
 PNG
 printf '# d-small\n\nA second small document, so the held key has two rows to sweep.\n' > "$test_root/fixture/d-small.md"
 # A 1 MiB and a 300 KB document made of ordinary blocks, past the 64 KiB worker threshold and under the 1 MiB refusal.

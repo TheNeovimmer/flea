@@ -172,14 +172,55 @@ function run(check) {
 
     // A big document sends its first blocks ahead once, and they are the first blocks of the whole parse.
     var longDoc = new Array(400).join("## Section\n\nA paragraph with `code`, **bold** and a [link][ref].\n\n- one\n- two\n\n") + "[ref]: https://example.invalid/ref\n"
+    // The head is serialized when it is sent, as the worker's reply is, so a block changed after that cannot hide from the check.
     var sent = []
-    var whole = Blocks.blocks(longDoc, dir, chrome, ink, Markdown.HEAD_BLOCKS, function (head) { sent.push(head) })
+    var whole = Blocks.blocks(longDoc, dir, chrome, ink, Markdown.HEAD_BLOCKS, function (head) { sent.push(JSON.stringify(head)) })
     check("a long document sends its head once", sent.length, 1)
-    check("the head holds exactly the head count", sent.length === 1 ? sent[0].length : -1, Markdown.HEAD_BLOCKS)
-    check("the head is the first blocks of the whole parse, a reference defined at the end included", sent.length === 1 ? JSON.stringify(sent[0]) : "", JSON.stringify(whole.slice(0, Markdown.HEAD_BLOCKS)))
-    check("the head resolves a reference defined after it", sent.length === 1 && JSON.stringify(sent[0]).indexOf("example.invalid/ref") >= 0, true)
+    var sentHead = sent.length === 1 ? JSON.parse(sent[0]) : []
+    check("the head holds exactly the head count", sentHead.length, Markdown.HEAD_BLOCKS)
+    check("the head is the first blocks of the whole parse, a reference defined at the end included", sent.length === 1 ? sent[0] : "", JSON.stringify(whole.slice(0, Markdown.HEAD_BLOCKS)))
+    check("the head resolves a reference defined after it", sent.length === 1 && sent[0].indexOf("example.invalid/ref") >= 0, true)
     check("the whole parse is unchanged by a head", JSON.stringify(whole), JSON.stringify(Markdown.blocks(longDoc, dir, chrome, ink)))
     var shortSent = 0
     Blocks.blocks("# Title\n\nshort\n", dir, chrome, ink, Markdown.HEAD_BLOCKS, function () { shortSent++ })
     check("a document shorter than the head sends none", shortSent, 0)
+
+    // A deep document's sentinel is the one block the parse answers, so the pane can land it without parsing.
+    check("deepBlocks is what a deep document parses to", JSON.stringify(Markdown.deepBlocks()), JSON.stringify(blocks(chain("> ", 40, "x\n"))))
+
+    // The Source view's chunks: whole lines near the chunk size, none longer than the maximum, and together exactly the text.
+    function chunked(text) {
+        var starts = Markdown.sourceChunkStarts(text)
+        var text2 = ""
+        var longest = 0
+        var endsInNewline = 0
+        for (var i = 0; i < starts.length; i++) {
+            var piece = Markdown.sourceChunk(text, starts, i)
+            longest = Math.max(longest, piece.length)
+            if (i + 1 < starts.length && piece.charAt(piece.length - 1) === "\n")
+                endsInNewline++
+            // A cut at a newline drops it from the piece and a cut inside a line drops nothing.
+            var span = (i + 1 < starts.length ? starts[i + 1] : text.length) - starts[i]
+            text2 += piece + (piece.length < span ? "\n" : "")
+        }
+        return { count: starts.length, longest: longest, endsInNewline: endsInNewline, same: text2 === text }
+    }
+    function lines(n, width, ending) {
+        var line = new Array(width).join("w") + ending
+        return new Array(n + 1).join(line)
+    }
+    var spaced = new Array(60000).join("word ")
+    var sourceCorpus = [["LF lines", lines(500, 100, "\n")], ["CRLF lines", lines(500, 100, "\r\n")], ["no final newline", lines(500, 100, "\n") + "tail"],
+        ["a final newline", lines(500, 100, "\n")], ["blank lines", new Array(3000).join("\n")], ["one 600 KB line without a newline", new Array(600001).join("w")],
+        ["one 300 KB line of words", spaced], ["a long line between short ones", lines(80, 20, "\n") + spaced + "\n" + lines(80, 20, "\n")]]
+    sourceCorpus.forEach(function (c) {
+        var got = chunked(c[1])
+        check(c[0] + ": the chunks are the text again", got.same, true)
+        check(c[0] + ": no chunk is longer than the maximum", got.longest <= Markdown.SOURCE_CHUNK_MAX, true)
+        check(c[0] + ": no chunk but the last ends in a newline it should have dropped", got.endsInNewline, 0)
+    })
+    check("a 600 KB line without a newline is many bounded chunks", chunked(sourceCorpus[5][1]).count > 600000 / Markdown.SOURCE_CHUNK_MAX, true)
+    check("a line of words is cut after a space", Markdown.sourceChunk(spaced, Markdown.sourceChunkStarts(spaced), 0).slice(-1), " ")
+    check("a short text is one chunk", JSON.stringify(Markdown.sourceChunkStarts("a\nb\nc")), "[0]")
+    check("lines of 100 characters cut at the first line end past the chunk size", JSON.stringify(Markdown.sourceChunkStarts(lines(200, 100, "\n"))), "[0,4100,8200,12300]")
 }

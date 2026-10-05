@@ -79,12 +79,12 @@ QtObject {
             body(source, "function askParse()"))
         // The shipped dropParse, parseNow and restoreScroll bodies, bound to the stub root over an empty stub list.
         var drop = new Function("root", body(source, "function dropParse()"))
-        var landing = new Function("root", "Markdown", "text", "dir", "chrome", "ink", body(source, "function parseNow("))
+        var landing = new Function("root", "Markdown", "text", "dir", "chrome", "ink", "deep", body(source, "function parseNow("))
         var restore = new Function("root", "body", body(source, "function restoreScroll()"))
         var remember = new Function("root", "body", body(source, "function rememberScroll()"))
         var list = { originY: 0, topMargin: 0, bottomMargin: 0, contentHeight: 0, height: 0, contentY: 0 }
         root.dropParse = function () { drop(root) }
-        root.parseNow = function (text, dir, chrome, ink) { landing(root, markdown, text, dir, chrome, ink) }
+        root.parseNow = function (text, dir, chrome, ink, deep) { landing(root, markdown, text, dir, chrome, ink, deep) }
         root.restoreScroll = function () { restore(root, list) }
         root.rememberScroll = function () { remember(root, list) }
         root.askParse = function () {}
@@ -139,7 +139,7 @@ QtObject {
 
     // A hold waits at holdAtPx for a place at holdSavedPx; the reader then moves to holdReaderPx and the hold is released.
     function holdChecks(source) {
-        var parse = new Function("root", "Markdown", "text", "dir", "chrome", "ink", body(source, "function parseNow("))
+        var parse = new Function("root", "Markdown", "text", "dir", "chrome", "ink", "deep", body(source, "function parseNow("))
         var markdown = { blocks: function () { return ["parsed"] } }
         var sync = holdStub(source)
         sync.root.keepScroll = true

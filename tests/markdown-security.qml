@@ -176,10 +176,10 @@ ShellRoot {
         })
     }
 
-    // Sample: the Source view lays out the file as plain-text chunk delegates; walking the list builds each, and joined by newlines they are the file.
+    // Sample: the Source view lays out the file as plain-text chunk delegates; walking the list builds each, and the chunks put back with the newlines their cuts dropped are the file.
     function sourceWhole() {
         var list = sourceView.sourceItem
-        var parts = []
+        var text = ""
         var plain = true
         for (var i = 0; i < list.count; i++) {
             list.positionViewAtIndex(i, ListView.Beginning)
@@ -188,9 +188,11 @@ ShellRoot {
             if (!chunk)
                 return null
             plain = plain && chunk.label.textFormat === Text.PlainText
-            parts.push(String(chunk.label.text))
+            var piece = String(chunk.label.text)
+            var span = (i + 1 < list.starts.length ? list.starts[i + 1] : sourceView.rawText.length) - list.starts[i]
+            text += piece + (piece.length < span ? "\n" : "")
         }
-        return { text: parts.join("\n"), plain: plain }
+        return { text: text, plain: plain }
     }
 
     function finishDrain() {

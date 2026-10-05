@@ -113,4 +113,19 @@ if check_source "MARKDOWN_LAZY source chars=573019 total=573019 endlaid=573019 l
     echo "FAIL a Source view that laid out the whole file was accepted"
     exit 1
 fi
-check_source "$output"
+check_source "$output" || exit 1
+# Sample input: MARKDOWN_LAZY source roundtrip chunks=140 same=true.
+check_roundtrip() {
+    local line chunks same
+    line=$(printf '%s\n' "$1" | grep -aE 'MARKDOWN_LAZY source roundtrip' | head -1)
+    [ -n "$line" ] || { echo "FAIL the Source chunks never reported their round trip"; return 1; }
+    chunks=$(printf '%s\n' "$line" | grep -aoE 'chunks=[0-9]+' | grep -aoE '[0-9]+')
+    same=$(printf '%s\n' "$line" | grep -aoE 'same=[a-z]+' | cut -d= -f2)
+    [ "$chunks" -gt 1 ] && [ "$same" = true ] || { echo "FAIL $chunks Source chunks do not put the file back (same=$same)"; return 1; }
+    printf 'PASS %s Source chunks put the file back exactly\n' "$chunks"
+}
+if check_roundtrip "MARKDOWN_LAZY source roundtrip chunks=140 same=false" >/dev/null; then
+    echo "FAIL chunks that do not put the file back were accepted"
+    exit 1
+fi
+check_roundtrip "$output"

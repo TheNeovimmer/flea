@@ -100,7 +100,7 @@ Item {
     // The bar's line count reads only once there is a file behind it, never "0 lines" first.
     readonly property bool contentReady: file.loaded && root.blocksReady
         && !root.tooLarge && !root.readFailed && root.parseError === ""
-    // Blocks are drawn from a parse still running: the head of a first parse, which the swap treats as a whole first screen.
+    // A first screen is drawn: blocks are in the list, the head of a parse still running or a whole list, and the swap counts either as shown.
     readonly property bool firstScreen: file.loaded && root.parseError === "" && root.blockList.length > 0
     // True when the reader has settled with nothing to put in the frame, the way PreviewLines.blank reads.
     readonly property bool blank: root.tooLarge
@@ -353,13 +353,13 @@ Item {
     }
 
     // The synchronous parse of one request, landed like a worker reply: the small-file path and the worker's recovery both end here.
-    function parseNow(text, dir, chrome, ink) {
-        var blocks = root.shareParse ? Prepared.take(root.path, text, dir, chrome, ink) : null
+    function parseNow(text, dir, chrome, ink, deep) {
+        var blocks = root.shareParse && !deep ? Prepared.take(root.path, text, dir, chrome, ink) : null
         if (blocks !== null)
             root.reusedParses++
         try {
             if (blocks === null)
-                blocks = Markdown.blocks(text, dir, chrome, ink)
+                blocks = deep ? Markdown.deepBlocks() : Markdown.blocks(text, dir, chrome, ink)
         } catch (e) {
             root.parseError = String(e.message || e)
             root.appliedSeq = root.parseSeq
@@ -367,7 +367,7 @@ Item {
             root.askedAny = false
             return
         }
-        if (root.shareParse)
+        if (root.shareParse && !deep)
             Prepared.store(root.path, text, dir, chrome, ink, blocks)
         // Taken once the parse is good and before the model reset, like the worker landing: a parse that throws takes no place.
         root.rememberScroll()
@@ -404,8 +404,10 @@ Item {
         root.parseSeq++
         root.parseRuns++
         root.parsing = true
-        // The live text length decides worker activation before bindings update, and a head nested too deep is refused here with no worker.
-        var wantWorker = text.length > root.workerThreshold && !Markdown.deepHead(text).deep
+        // The live text length decides worker activation before bindings update; a big text with a deep head lands the sentinel unparsed.
+        var big = text.length > root.workerThreshold
+        var deep = big && Markdown.deepHead(text).deep
+        var wantWorker = big && !deep
         parserLoader.active = wantWorker
         var w = parserLoader.item
         if (wantWorker && w) {
@@ -416,7 +418,7 @@ Item {
         }
         parserLoader.active = false
         parseFallback.stop()
-        root.parseNow(text, dir, root.chromeHex, root.inkHex)
+        root.parseNow(text, dir, root.chromeHex, root.inkHex, deep)
     }
 
     onRawTextChanged: root.askParse()

@@ -162,7 +162,7 @@ function blocks(source, dir, chrome, ink) {
 // The deep verdict reads this many bytes of the head at most: the pass is forward only, so a head that nests too deep is deep in the whole text.
 var DEEP_HEAD_BYTES = 16384
 
-// Sample: "> > > ...x" (400 levels) answers { deep: true, scanned: 800 }; a head within the limit that never nests too deep answers deep false.
+// Sample: "> ".repeat(400) + "x" answers { deep: true, scanned: 801 }; a head that never nests too deep answers deep false.
 function deepHead(source) {
     var head = String(source)
     if (head.length > DEEP_HEAD_BYTES)
@@ -172,6 +172,11 @@ function deepHead(source) {
     return { deep: state.deep === true, scanned: head.length }
 }
 
+// The one block a document nested too deep parses to, so a deep head lands it with no parse of the text.
+function deepBlocks() {
+    return [{ type: "deep", limit: NESTING_LIMIT }]
+}
+
 // The fenced info string naming a figure, or "" for code. Tests pin it.
 function figureKind(info) {
     return Blocks.figureKind(info)
@@ -179,22 +184,32 @@ function figureKind(info) {
 
 // The Source view lays out chunks of whole lines about this many characters long, so a screenful of a large file costs a few chunks.
 var SOURCE_CHUNK_CHARS = 4096
+// No chunk is longer than this: a line that runs past it is cut at its last space past SOURCE_CHUNK_CHARS, or at the limit when it has none.
+var SOURCE_CHUNK_MAX = 2 * SOURCE_CHUNK_CHARS
 
-// Sample: "a\nb\nc" with a chunk size of 2 answers [0, 2, 4]; every chunk after the first starts just past a newline.
+// Sample: 20000 characters in lines of 100 answers [0, 4100, 8200, 12300]; a longer line is cut inside, after its last space.
 function sourceChunkStarts(text) {
     var starts = [0]
-    var at = SOURCE_CHUNK_CHARS
-    while (at < text.length) {
-        var cut = text.indexOf("\n", at)
-        if (cut < 0 || cut + 1 >= text.length)
-            break
-        starts.push(cut + 1)
-        at = cut + 1 + SOURCE_CHUNK_CHARS
+    var from = 0
+    while (text.length - from > SOURCE_CHUNK_MAX) {
+        var cut = text.indexOf("\n", from + SOURCE_CHUNK_CHARS)
+        var next
+        if (cut >= 0 && cut < from + SOURCE_CHUNK_MAX) {
+            next = cut + 1
+        } else {
+            var space = text.lastIndexOf(" ", from + SOURCE_CHUNK_MAX - 1)
+            next = space >= from + SOURCE_CHUNK_CHARS ? space + 1 : from + SOURCE_CHUNK_MAX
+        }
+        starts.push(next)
+        from = next
     }
     return starts
 }
 
-// Chunk i of the text without the newline that ends it, so the chunks joined by newlines are the text again.
+// Chunk i without the newline that ends it, if one does; a cut inside a line drops nothing, so the chunks are the text again.
 function sourceChunk(text, starts, i) {
-    return text.slice(starts[i], i + 1 < starts.length ? starts[i + 1] - 1 : text.length)
+    var end = i + 1 < starts.length ? starts[i + 1] : text.length
+    if (i + 1 < starts.length && text.charAt(end - 1) === "\n")
+        end--
+    return text.slice(starts[i], end)
 }
