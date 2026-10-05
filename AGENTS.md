@@ -4935,7 +4935,7 @@ it is now oriented `auto`, a class composition or aggregation diamond is referen
 `tests/markdown-figures-render-ends.qml` samples accent ink at both ends of the first edge of 12 link cases, from a real helper figure. A subgraph with an edge leaving it is laid
 out with the whole graph, as mermaid.js's dagre wrapper does (its docs example draws one, two and three in one row); a subgraph with none stays an ELK compound node. The
 flattened frames hug their members, the edges between them and their child frames, and the layout falls back to the nested one when a frame would take in a foreign node or cross a
-sibling (LR docs example, nested clusters with outside edges). A later bare mention keeps a node's first shape (`registerNode` guards it).
+sibling (LR docs example, nested clusters with outside edges). A later bare mention keeps a node's first shape through the library's own `registerNode` isNew guard, unpatched (pinned in tests/mermaid-syntax.mjs).
 
 mathsize 2026-10-04: a display formula's ex equals the body font's x-height, so maths and prose letters stand level.
 `ui/MarkdownFigure.qml` measures `FontMetrics.xHeight` on its own family at `bodyPx` and sends it in the theme as `exPx`;
