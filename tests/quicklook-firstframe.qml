@@ -22,7 +22,9 @@ ShellRoot {
     readonly property var pictureDocs: ["a-notes.md", "h-html.md"]
     // QLFF_REENTER=1 runs one poll tick inside the close key's event loop, which a loaded host does by chance.
     readonly property bool reenter: Quickshell.env("QLFF_REENTER") === "1"
-    // QLFF_LATEROWS=1 answers a capped or rest step's first rest with a rows reply that lists the file's real size again, as a late stat reply does on a loaded host.
+    // A keyClick delay pumps a nested loop, so the reenter kicker fires inside the key.
+    readonly property int pressDelayMs: 10
+    // QLFF_LATEROWS=1 pins the harness's own restore of a late rows reply on a loaded host: a capped or rest step's first rest answers with one listing the file's real size again.
     readonly property bool lateRows: Quickshell.env("QLFF_LATEROWS") === "1"
     // The size a capped or rest step's row lists, as a listing does for a file that grew since.
     readonly property int staleBytes: 900
@@ -66,11 +68,13 @@ ShellRoot {
     property bool compared: false
     // True while a real key's event loop runs: a poll tick inside it must not finish the run, as Qt.exit there tears the root down under the key's own handler.
     property bool inKey: false
+    property int reentered: 0
     property int realBytes: 0
     property int lateRowsAt: -1
 
     function log(line) { console.log("QLFF " + line) }
     function finish() {
+        if (root.reenter && root.reentered < 1) root.fail("reenter leg saw no kicker tick inside the key")
         root.log("DONE steps=" + root.step + " failures=" + root.failures)
         Qt.exit(root.failures ? 1 : 0)
     }
@@ -91,7 +95,7 @@ ShellRoot {
     function press() {
         if (root.reenter) kicker.start()
         root.inKey = true
-        root.keys.keyClick(Qt.Key_Space, Qt.NoModifier, -1)
+        root.keys.keyClick(Qt.Key_Space, Qt.NoModifier, root.reenter ? root.pressDelayMs : -1)
         root.inKey = false
     }
     function cur() { return root.steps[root.step] }
@@ -240,7 +244,11 @@ ShellRoot {
         repeat: true
         running: true
         onTriggered: {
-            if (root.inKey) return
+            if (root.inKey) {
+                root.reentered++
+                root.log("REENTERED " + root.reentered)
+                return
+            }
             var pane = root.pane()
             if (Date.now() - root.stageAt > root.watchdogMs) {
                 var at = pane ? pane.rowFor(pane.cursorIndex) : null
@@ -300,7 +308,7 @@ ShellRoot {
                     root.quiet = 0
                     return
                 }
-                // A rows reply that lands after the override lists the real size again, which no read at rest answers: put the stale size back and rest again.
+                // A late rows reply lists the real size again, which no read at rest answers: the harness puts the stale size back and rests the cursor again.
                 if ((step.expect === "capped" || step.expect === "rest") && row.s !== root.staleBytes) {
                     row.s = root.staleBytes
                     root.prepare.moved()

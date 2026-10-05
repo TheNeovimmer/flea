@@ -151,7 +151,7 @@ if pgrep -f -- "head -c [0-9]* -- $test_root/fixture/e-pipe.md" >/dev/null; then
 fi
 # A row that lists 900 bytes for a 300 KB file reads only up to the cap, and nothing is prepared from it.
 run_leg capped "c-mid.md:capped" "" 1 "" 60
-# The same row, after a late rows reply lists the file's real size again: the stale size is put back and the cursor rests again.
+# The latecapped leg pins the harness's own restore of a late rows reply on a loaded host: the stale size is put back and the cursor rests again.
 QLFF_LATEROWS=1 run_leg latecapped "c-mid.md:capped" "" 1 "" 60
 printf 'quicklook-firstframe: %s legs, %s failed\n' "$legs" "$failures"
 [ "$failures" -eq 0 ]
