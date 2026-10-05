@@ -10536,7 +10536,7 @@ fsdevice_switch_off() {
 # case's own fixture dir. Reads go through the existing Ipc readers and real ls and gio; every
 # action is a key or a click.
 case_fsdevice() {
-    local layout="${FLEA_FS_LAYOUT:-}" expected_json="${FLEA_FS_EXPECTED:-}"
+    local layout="${FLEA_FS_LAYOUT:-}" expected_json="${FLEA_FS_EXPECTED:-}" trash_checks=0
     case "$layout" in vfat|exfat|ntfs3|espdata|espmsrswap|isohybrid) ;;
         *) fail "fsdevice: set FLEA_FS_LAYOUT to a stick layout, got '$layout'" ;;
     esac
