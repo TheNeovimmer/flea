@@ -192,9 +192,9 @@ function run(check) {
     check("no front matter means no fence", kinds("---\n"), "run")
     check("a setext underline makes a heading", kinds("Title\n=====\n"), "heading")
     check("a level-two setext makes a heading", kinds("Title\n---\n"), "heading")
-    check("a thematic break stays prose", kinds("Text\n\n***\n\nMore\n"), "run")
-    check("dashes break too", kinds("Text\n\n---\n\nMore\n"), "run")
-    check("underscores break too", kinds("Text\n\n___\n\nMore\n"), "run")
+    check("a thematic break stays prose", kinds("Text\n\n***\n\nMore\n"), "run,run,run")
+    check("dashes break too", kinds("Text\n\n---\n\nMore\n"), "run,run,run")
+    check("underscores break too", kinds("Text\n\n___\n\nMore\n"), "run,run,run")
     // RenderedPreviews draws a heading at its own size, so an ATX heading is a block of its own.
     var h2 = Markdown.blocks("## Second level ##\n", dir, chrome, ink)[0]
     check("an ATX heading is a heading block", h2.type, "heading")
@@ -219,8 +219,8 @@ function run(check) {
         Markdown.blocks("# - dash\n", dir, chrome, ink)[0].text, "&#45; dash")
     check("an emphasis title keeps its emphasis",
         Markdown.blocks("# _Hi_\n", dir, chrome, ink)[0].text, "<em>Hi</em>")
-    check("spaced stars stay a thematic break", kinds("Text\n\n* * *\n\nMore\n"), "run")
-    check("spaced dashes stay a thematic break", kinds("Text\n\n- - -\n\nMore\n"), "run")
+    check("spaced stars stay a thematic break", kinds("Text\n\n* * *\n\nMore\n"), "run,run,run")
+    check("spaced dashes stay a thematic break", kinds("Text\n\n- - -\n\nMore\n"), "run,run,run")
     check("indented code draws verbatim", kinds("Text\n\n    var a = 1;\n\nMore\n"), "run,fence,run")
     var indented = Markdown.blocks("Text\n\n    var a = 1;\n", dir, chrome, ink)[1]
     check("indented code strips its indent", indented.text, "var a = 1;")
@@ -504,7 +504,8 @@ function run(check) {
     var trick = Markdown.blocks("1.  item\n\n    continued\n", dir, chrome, ink)
     check("a four-space continuation joins its item", trick.length === 1 && trick[0].type === "list", true)
     check("the trick keeps one item", trick[0].items.length, 1)
-    check("the trick keeps both lines", trick[0].items[0].indexOf("continued") >= 0, true)
+    check("the trick keeps both lines", JSON.stringify((trick[0].parts || [[]])[0].map(function (b) { return b.text })),
+        JSON.stringify(["item", "continued"]))
     check("an ordered list keeps its start", Markdown.blocks("3. a\n4. b\n", dir, chrome, ink)[0].start, 3)
     var lazy = Markdown.blocks("1. a\nlazy line\n2. b\n", dir, chrome, ink)[0]
     check("a lazy line joins its item", lazy.items[0].indexOf("lazy") >= 0, true)
@@ -566,6 +567,15 @@ function run(check) {
     var child = Markdown.blocks("1. a\n   - b", dir, chrome, ink)
     check("a marker at the content column stays nested", child.length, 1)
     check("a nested marker is an entry one level down", JSON.stringify([child[0].items, child[0].depths]), "[[\"a\",\"b\"],[0,1]]")
+
+    // A blank line ends the paragraph: consecutive paragraphs are consecutive run blocks, so the list's gap stands between every pair.
+    var paras = Markdown.blocks("para one\n\npara two\n", dir, chrome, ink)
+    check("consecutive paragraphs are consecutive runs", paras.map(function (b) { return b.type }).join(","), "run,run")
+    check("each paragraph keeps its own text", paras.map(function (b) { return b.text }).join("|"), "para one|para two\n")
+    var mathsPara = Markdown.blocks("Inline maths $x^2 + y^2$ in a line.\n\n&#49;. ol\n", dir, chrome, ink)
+    check("a maths paragraph and its neighbour are consecutive runs", mathsPara.map(function (b) { return b.type }).join(","), "run,run")
+    check("the maths stays on the first run", mathsPara.length === 2 && mathsPara[0].maths !== undefined ? mathsPara[0].maths.join(",") : "", "x^2 + y^2")
+    check("no run after the split lists a formula twice", mathsPara.length === 2 && mathsPara[1].maths === undefined, true)
 
     // Reads are counted per character scanned, so the check holds on any machine and needs no clock.
     function countedScan(source) {

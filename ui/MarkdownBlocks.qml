@@ -19,6 +19,7 @@ Column {
             block: modelData
             blockIndex: index
             blockCount: root.blocks.length
+            siblings: root.blocks
             preview: root.preview
             inView: root.inView
             width: root.width

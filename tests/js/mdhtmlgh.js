@@ -16,13 +16,13 @@ function run(check) {
             .map(function (b) { return b.text }).join("|")
     }
     var logo = blocks('<p align="center"><img src="img/logo.png" width="64" alt="logo"></p>\n<p align="center"><b>A centred title</b></p>\n\nLine one<br>line two')
-    check("H1 logo line is an image block between heading and text", logo.map(function (b) { return b.type }).join(","), "image,run")
+    check("H1 logo line is an image block between heading and text", logo.map(function (b) { return b.type }).join(","), "image,run,run")
     check("H1 logo keeps its width attribute", at(logo, 0).width, 64)
     check("H1 logo is centred by its paragraph", at(logo, 0).align, "center")
     check("H1 logo points beside the document", at(logo, 0).url, logoUrl)
     check("H1 logo keeps its alt", at(logo, 0).alt, "logo")
     check("H1 title stays a centred bold paragraph", String(at(logo, 1).text).indexOf('<p align="center"><b>A centred title</b></p>') >= 0, true)
-    check("H1 line break survives", String(at(logo, 1).text).indexOf("Line one<br />line two") >= 0, true)
+    check("H1 line break survives", String(at(logo, 2).text).indexOf("Line one<br />line two") >= 0, true)
     var wrapped = blocks('<p align="center">\n  <img src="img/logo.png" width="128">\n</p>\n\ntext')
     check("H2 a wrapper on its own lines leaves only the image and the text", wrapped.map(function (b) { return b.type }).join(","), "image,run")
     check("H2 wrapped image is centred at its width", at(wrapped, 0).align + ":" + at(wrapped, 0).width, "center:128")
@@ -60,7 +60,7 @@ function run(check) {
     check("H10 an onerror attribute never survives on an image", JSON.stringify(blocks('<img src="img/logo.png" onerror="alert(1)">')).indexOf("onerror"), -1)
     check("H12 a block-level raw tag after a paragraph starts its own run", types("Body text.\n\n<div>A div</div>"), "run,run")
     check("H12 a raw table keeps its rows in one run", types("<table>\n<tr>\n<td>x</td>\n</tr>\n</table>"), "run")
-    check("H12 a paragraph after an HTML block stays with it", types('<p align="center"><b>T</b></p>\n\nafter'), "run")
+    check("H12 a paragraph after an HTML block stays with it", types('<p align="center"><b>T</b></p>\n\nafter'), "run,run")
     var url = "https://example.com/x"
     var linked = blocks('<p align="center">\n<a href="' + url + '"><img src="img/logo.png" width="64" alt="logo"></a>\n</p>\n\nAfter')
     check("H14 a linked centred logo is an image block then the text", linked.map(function (b) { return b.type }).join(","), "image,run")
@@ -74,8 +74,9 @@ function run(check) {
     check("H14 two linked badges in one block are one row, each linked", badges.map(function (b) { return b.type }).join(",") + ":" + (at(badges, 0).items || []).map(function (i) { return i.link }).join(","),
         "images:" + url + "," + url + "y")
     var open = blocks('<p align="center"><img src="img/logo.png" width="64" alt="logo">\n<br><b>Name</b>\n</p>\n\nAfter')
-    check("H15 an opener with the image and the closer later is the image then a centred run", open.map(function (b) { return b.type }).join(","), "image,run")
-    check("H15 the rest of the wrapper is a centred paragraph with no leading break", at(open, 1).text, '<p align="center"><b>Name</b></p>\n\nAfter')
+    check("H15 an opener with the image and the closer later is the image then a centred run", open.map(function (b) { return b.type }).join(","), "image,run,run")
+    check("H15 the rest of the wrapper is a centred paragraph with no leading break", at(open, 1).text, '<p align="center"><b>Name</b></p>')
+    check("H15 the text after the wrapper is its own run", String(at(open, 2).text), "After")
     var empty = blocks('<p align=center><img src="img/logo.png" width="64">\n</p>\n\nAfter')
     check("H15 a wrapper holding only the image leaves no empty or closer-only run", empty.map(function (b) { return b.type + ":" + String(b.text).trim() }).join(","), "image:undefined,run:After")
     var noCloser = ['<p align="center"><img src="img/logo.png">', "", "After"]
@@ -84,7 +85,7 @@ function run(check) {
     // The closer shares a line with text, so the unit declines and the importer path draws one balanced paragraph.
     var shared = ['<p align="center"><img src="img/logo.png">', "<b>Name</b></p>", "", "After"]
     check("H15 a closer that shares its line with text is no unit", HtmlImage.imageUnit(shared, 0, dir), null)
-    check("H15 the stray closer is drawn once, balanced with its centring wrapper", runs(shared.join("\n")), '<p align="center"><b>Name</b></p>\n\nAfter')
+    check("H15 the stray closer is drawn once, balanced with its centring wrapper", runs(shared.join("\n")), '<p align="center"><b>Name</b></p>|After')
     check("H16 an inline image in a paragraph stays inline", types('text <a href="' + url + '"><img src="img/logo.png"></a> tail'), "run")
     check("H4 a width past the pane is kept for the pane to clamp", at(blocks('<img src="img/logo.png" width="5000">'), 0).width, 5000)
     check("H17 a heading and a paragraph on adjacent lines are two runs", types('<h1 align="center">Flea</h1>\n<p align="center"><b>A file manager</b> for <i>Omarchy</i></p>'), "run,run")
@@ -92,7 +93,7 @@ function run(check) {
     check("H17 nested blocks inside one div stay one run", types("<div>\n<p>a</p>\n<p>b</p>\n</div>"), "run")
     check("H17 a details summary line stays with its details", types("<details>\n<summary>S</summary>\n\nbody\n\n</details>"), "run")
     check("H18 a soft break after br collapses", runs("one<br>\ntwo"), "one<br />two")
-    check("H18 a break before a blank line keeps the paragraph break", runs("one<br>\n\ntwo").indexOf("\n\n") >= 0, true)
+    check("H18 a break before a blank line keeps the paragraph break", runs("one<br>\n\ntwo"), "one<br />|two")
     check("H13 a lone angle bracket stays text", runs("1 < 2 and <3 here"), "1 &#60; 2 and &#60;3 here")
     check("H13 HTML in a code span stays literal", runs("use `<b>x</b>` here"),
         'use <code style="background-color:#181825">&#60;b&#62;x&#60;&#47;b&#62;</code> here')

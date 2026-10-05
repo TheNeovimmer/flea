@@ -58,7 +58,7 @@ ShellRoot {
     }
 
     function ready() {
-        if (!md.contentReady || md.view !== "rendered" || md.blockList.length !== 7) return false
+        if (!md.contentReady || md.view !== "rendered" || md.blockList.length !== 9) return false
         for (var i = 0; i < 3; i++) {
             var index = [1, 2, 5][i]
             var fig = Checks.figure(md, index)
@@ -66,7 +66,21 @@ ShellRoot {
             if (!fig || !fig.ready || fig.working || !image || image.status !== Image.Ready || image.height <= 0)
                 return false
         }
-        return md.blockItem(6) !== null
+        // Two consecutive mermaids settle like the display maths, and draw without their shared canvas margins.
+        for (var m = 7; m <= 8; m++) {
+            var dia = Checks.figure(md, m)
+            var poster = Checks.imageOf(dia)
+            if (!dia || !dia.ready || dia.failed || dia.working || !poster || poster.status !== Image.Ready || poster.height <= 0)
+                return false
+        }
+        return md.blockItem(8) !== null
+    }
+
+    // One figure's drawn image in the document frame: the rows no neighbour's ink can reach, since images never overlap.
+    function imageRect(i) {
+        var image = Checks.imageOf(Checks.figure(md, i))
+        var at = image.mapToItem(md, 0, 0)
+        return { x: at.x, y: at.y, w: image.width, h: image.height }
     }
 
     function geometry() {
@@ -74,21 +88,21 @@ ShellRoot {
         var body = Flea.Theme.font.body
         var inset = Flea.Theme.spacing.gap
         shell.check(body === (shell.larger ? 16 : 14) ? "" : "unexpected text size " + body, "text size")
-        shell.check(md.blockList.map(function (b) { return b.type }).join(",") === "run,figure,figure,fence,run,figure,run"
+        shell.check(md.blockList.map(function (b) { return b.type }).join(",") === "run,figure,figure,fence,run,figure,run,figure,figure"
             ? "" : "fixture block types changed", "display block structure")
         var rects = []
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 9; i++)
             rects.push(Checks.drawnBlockRect(md, i, md, inset))
         var firstText = md.blockItem(0).children[0]
         shell.log("first paragraph rect=" + JSON.stringify(rects[0]) + " contentY=" + md.bodyItem.contentY
             + " visible=" + firstText.visible + " text=" + firstText.text)
-        var pairs = [[1, 2, "consecutive display maths"], [2, 3, "maths to fence"],
-            [4, 5, "paragraph to single maths"], [5, 6, "single maths to paragraph"]]
+        var pairs = [[1, 2, "consecutive display maths", md.blockGap], [2, 3, "maths to fence", md.blockGap],
+            [4, 5, "paragraph to single maths", md.blockGap], [5, 6, "single maths to paragraph", md.blockGap]]
         for (var p = 0; p < pairs.length; p++) {
             var pair = pairs[p]
             var gap = rects[pair[1]].y - rects[pair[0]].y - rects[pair[0]].h
-            shell.log(pair[2] + " gap=" + gap + " blockGap=" + md.blockGap + " body=" + body)
-            shell.check(Checks.blockGapError(rects[pair[0]], rects[pair[1]], md.blockGap),
+            shell.log(pair[2] + " gap=" + gap + " want=" + pair[3] + " body=" + body)
+            shell.check(Checks.blockGapError(rects[pair[0]], rects[pair[1]], pair[3]),
                 pair[2] + " at body " + body)
         }
         for (var f = 0; f < 3; f++) {
@@ -120,7 +134,7 @@ ShellRoot {
     function pixels(ctx) {
         ctx.drawImage(shot, 0, 0)
         var data = ctx.getImageData(0, 0, 560, 600).data
-        var indices = [0, 1, 2, 4, 5, 6]
+        var indices = [0, 1, 2, 4, 5, 6, 7, 8]
         for (var i = 0; i < indices.length; i++) {
             var index = indices[i]
             var rect = shell.capturedRects[index]
@@ -133,6 +147,8 @@ ShellRoot {
                 }
             shell.check(ink > 2 ? "" : "captured item has no ink", "block " + index + " painted")
         }
+        // Two consecutive figures stand one block gap apart, ink to ink: the scan runs over the disjoint image rows, never the padded rects.
+        shell.check(Checks.inkGapError(data, 560, 600, imageRect(7), imageRect(8), md.blockGap), "consecutive mermaids stand one block gap apart")
         shell.larger = true
         md.view = "source"
         Flea.ViewState.setTextSize({ mode: 16 })

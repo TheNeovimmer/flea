@@ -131,7 +131,7 @@ function run(check) {
     function kinds(doc) {
         return Markdown.blocks(doc, dir).map(function (b) { return b.type }).join(",")
     }
-    check("plain prose is one run", kinds("Some words.\n\nMore words.\n"), "run")
+    check("plain prose splits into runs", kinds("Some words.\n\nMore words.\n"), "run,run")
     check("a heading splits out ahead of its prose", kinds("# Hi\n\nSome words.\n"), "heading,run")
     check("a fence splits out verbatim", kinds("Before\n\n```js\nvar a = 1;\n```\n\nAfter\n"), "run,fence,run")
     var fence = Markdown.blocks("```js\nvar a = 1;\n```\n", dir)[0]

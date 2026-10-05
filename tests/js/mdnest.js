@@ -47,7 +47,8 @@ function run(check) {
     check("a heading in a quote is a heading part", kinds(blocks("> # Title\n> body\n")[0].parts || []), "heading,run")
     check("a quote in an item is a quote part", kinds(partsOf(blocks("- a\n  > b\n")[0], 0)), "run,quote")
     var itemQuote = partsOf(blocks("- a\n  > b\n  >\n  > c\n")[0], 0)[1]
-    check("a second paragraph in a quote in an item stays in that quote", itemQuote !== undefined && itemQuote.type === "quote" && itemQuote.text.indexOf("c") >= 0, true)
+    check("a second paragraph in a quote in an item stays in that quote", itemQuote !== undefined && itemQuote.type === "quote"
+        && JSON.stringify((itemQuote.parts || []).map(function (b) { return b.text })), JSON.stringify(["b", "c"]))
     check("a list in a quote is a list part", kinds(blocks("> - a\n> - b\n> ```\n> x\n> ```\n")[0].parts || []), "list,fence")
     check("an empty fence in a quote is an empty fence part", JSON.stringify(blocks("> ```\n")[0].parts || []), JSON.stringify([{ type: "fence", text: "", info: "" }]))
 

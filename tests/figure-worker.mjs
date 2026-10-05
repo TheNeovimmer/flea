@@ -1,6 +1,7 @@
 // Exercise SVG post-processing directly, with the cyclic fixture confined to a child process.
 import { argv, finish, runSelf } from "./js-runtime.mjs";
 import { postMermaid, postMath, renderFigure } from "../ui/js/FigureWorker.mjs";
+import { texToSvg } from "../ui/vendor/math.mjs";
 
 // A hung resolver must fail this test without holding the suite open.
 const CYCLE_BOUND_SECONDS = 5;
@@ -65,6 +66,20 @@ if (argv[0] === "cycle") {
         const fallbackEx = drawnExPx({ fg: "#ffffff", bodyPx: EM_BODY_PX }, display);
         check(exMatches(fallbackEx, EM_RULE_EX_PX), `${kind} maths ex ${fallbackEx.toFixed(2)}px falls back to the em rule ${EM_RULE_EX_PX.toFixed(2)}px without a measured x-height`);
     }
+    // An inline formula draws whole through the real bundle: operators never cut the later terms, and a two-term formula draws wider than its first term alone.
+    const inlineTheme = { bg: "#000000", fg: "#ffffff", font: "monospace", bodyPx: 14, exPx: 7.7, advances: [], boldAdvances: [] };
+    function inlineSvg(source) {
+        return renderFigure("math", source, false, inlineTheme, { texToSvg });
+    }
+    function inlineWidthPx(source) {
+        const match = inlineSvg(source).match(/width="([\d.]+)px"/);
+        return match ? Number(match[1]) : NaN;
+    }
+    for (const [source, marker] of [["x^2 + y^2", 'data-latex="y"'], ["a+b", 'data-latex="b"'],
+        ["\\frac{a}{b} + c", 'data-latex="c"'], ["\\sqrt{x + 1}", "msqrt"], ["a_{1} + b^{2}", 'data-latex="b"']]) {
+        check(inlineSvg(source).includes(marker), `inline ${source} draws its later terms`);
+    }
+    check(inlineWidthPx("x^2 + y^2") > inlineWidthPx("x^2"), "an inline two-term formula draws wider than its first term alone");
     console.log(`figure-worker: ${checks} check(s), ${failures} failed`);
     finish(failures);
 }

@@ -542,6 +542,7 @@ Item {
             block: modelData
             blockIndex: index
             blockCount: root.blockList.length
+            siblings: root.blockList
             preview: root
             width: ListView.view.width
             // Only a figure intersecting the viewport may send a render request.

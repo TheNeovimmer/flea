@@ -16,6 +16,7 @@ Qt.include("js/MdEmph.js");
 Qt.include("js/MdBreak.js");
 Qt.include("js/MdHold.js");
 Qt.include("js/MdRun.js");
+Qt.include("js/MdParagraphs.js");
 Qt.include("js/MdLeaf.js");
 Qt.include("js/MdItems.js");
 Qt.include("js/MdChunks.js");
@@ -26,7 +27,7 @@ Qt.include("js/MdBlocks.js");
 
 var Format = { date: date, fileUri: fileUri };
 var MdUrl = { canonicalUrl: canonicalUrl, classifyImage: classifyImage, placeholder: placeholder, srcsetPick: srcsetPick, strippedTarget: strippedTarget, targetAllowed: targetAllowed };
-var MdHtml = { closeToken: closeToken, openToken: openToken, documentText: documentText, normalizedTarget: normalizedTarget, readTag: readTag, sanitizeTag: sanitizeTag, tagHead: tagHead };
+var MdHtml = { closeToken: closeToken, openToken: openToken, documentText: documentText, normalizedTarget: normalizedTarget, readTag: readTag, sanitizeTag: sanitizeTag, tagHead: tagHead, MAX_TAG_LENGTH: MAX_TAG_LENGTH };
 var MdHtmlImage = { imageUnit: imageUnit, rawImage: rawImage, isCentred: isCentred, linkOf: linkOf, LEADING_BREAK: LEADING_BREAK };
 var MdHtmlBlock = { splitHtmlImages: splitHtmlImages, separateBlocks: separateBlocks };
 var MdEscape = { escapeText: escapeText, isAsciiPunct: isAsciiPunct };
@@ -40,6 +41,7 @@ var MdBreak = { isRuleLine: isRuleLine, lineBreak: lineBreak, quoteMarkAt: quote
 var MdResolve = { bareAt: bareAt, isLinkTarget: isLinkTarget, parseAngle: parseAngle, plainText: plainText, readDestination: readDestination, readRawDestination: readRawDestination, resolvePair: resolvePair, styledSpan: styledSpan };
 var MdHold = { hold: hold };
 var MdRun = { parseInline: parseInline };
+var MdParagraphs = { cutAfter: cutAfter };
 var MdLeaf = { alertTitle: alertTitle, atxHeading: atxHeading, chunkTable: chunkTable, LIST_CHUNK_ITEMS: LIST_CHUNK_ITEMS, headingSafe: headingSafe, delimAligns: delimAligns, fenceOpen: fenceOpen, indentOf: indentOf, isThematic: isThematic, isSetext: isSetext, setextLevel: setextLevel, splitRow: splitRow, standaloneImage: standaloneImage, tableBlock: tableBlock, taskText: taskText, pinTaskBox: pinTaskBox };
 var MdContainer = { readListMarker: readListMarker, indentationAt: indentationAt, takeIndent: takeIndent, quoteAt: quoteAt, takeQuote: takeQuote, listAt: listAt, takeList: takeList, startsBlock: startsBlock, textAt: textAt, unindent: unindent, expandLead: expandLead };
 var MdItems = { builder: builder, content: content, inlineLines: inlineLines, isRaw: isRaw, listBlock: listBlock, quoteBlocks: quoteBlocks, visibleLines: visibleLines };

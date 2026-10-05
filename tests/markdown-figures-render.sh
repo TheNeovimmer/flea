@@ -141,6 +141,16 @@ Before a single formula.
 $$x^2$$
 
 After a single formula.
+
+```mermaid
+flowchart TD
+    A --> B
+```
+
+```mermaid
+sequenceDiagram
+    A->>B: hi
+```
 EOF
 cp tests/markdown-mathgap.qml "$test_root/config/shell.qml" || exit 1
 mathgap_output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
@@ -155,7 +165,7 @@ warnings=$(printf '%s\n' "$mathgap_output" | grep -aE 'TypeError|ReferenceError|
 if [ -n "${FLEA_CI_SUITE_LOGS:-}" ] && [ -f "$test_root/runtime/markdown-mathgap.png" ]; then
     cp "$test_root/runtime/markdown-mathgap.png" "$FLEA_CI_SUITE_LOGS/markdown-mathgap.png" || exit 1
 fi
-expected_mathgap_checks=31
+expected_mathgap_checks=34
 # Sample input: MARKDOWN_MATHGAP 31 checks, 0 failed
 if ! printf '%s\n' "$mathgap_output" | grep -qE "(^|: )MARKDOWN_MATHGAP $expected_mathgap_checks checks, 0 failed$"; then
     printf 'FAIL markdown-figures-render: mathgap expected %s checks, 0 failed; arrived [%s]\n' "$expected_mathgap_checks" "${mathgap_output:-<empty>}" >&2

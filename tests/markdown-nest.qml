@@ -13,7 +13,7 @@ ShellRoot {
     function quit() { Quickshell.execDetached(["kill", String(Quickshell.processId)]) }
 
     property string dir: Quickshell.env("FLEA_NEST_DIR")
-    readonly property var plan: ["nest", "empty", "compact"]
+    readonly property var plan: ["nest", "empty", "compact", "gap"]
     readonly property int bodySize: 14
     readonly property string nestTypes: "heading,fence,list,quote,list,quote,quote,list,quote"
     property int step: -1
@@ -145,6 +145,22 @@ ShellRoot {
         shell.check(wrong(Nest.near(gap, 3 * md.blockGap), "gap " + gap + ", want " + 3 * md.blockGap), "only the list's gaps stand between the blocks around them")
     }
 
+    // Consecutive paragraphs are consecutive blocks: the gap after a maths line equals every other paragraph gap.
+    function gapChecks() {
+        var types = md.blockList.map(function (b) { return b.type }).join(",")
+        shell.check(wrong(types === "run,run", types), "a maths line and its neighbour are consecutive runs")
+        if (md.blockList.length !== 2)
+            return
+        var maths = Nest.formulas(Nest.delegate(md, 0))
+        shell.check(wrong(maths.length === 1 && maths[0].text.indexOf("<img") >= 0, maths.length + " formulas"), "the maths line draws its formula")
+        var plain = Nest.formulas(Nest.delegate(md, 1))
+        shell.check(wrong(plain.length === 0, plain.length + " formulas"), "the neighbour draws no formula")
+        var first = Nest.delegate(md, 0)
+        var second = Nest.delegate(md, 1)
+        var gap = second.y - first.y - first.height
+        shell.check(wrong(Nest.near(gap, md.blockGap), "gap " + gap + ", want " + md.blockGap), "the gap after a maths line equals the block gap")
+    }
+
     // A second text size: the preview column sets the document one token under Quick Look's, and a formula's run must follow it.
     function compactChecks() {
         var plainDelegate = Nest.delegate(md, 0)
@@ -171,8 +187,10 @@ ShellRoot {
                 shell.nestChecks()
             else if (name === "empty")
                 shell.emptyChecks()
-            else
+            else if (name === "compact")
                 shell.compactChecks()
+            else
+                shell.gapChecks()
         } catch (e) {
             return shell.finish("a check threw at " + name + ": " + e)
         }
