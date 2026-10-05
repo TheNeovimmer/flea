@@ -68,6 +68,10 @@ ShellRoot {
     // QLFF_RELEASE=1 moves the rested cursor to a folder and back once before the first key: Quick Look must go and come again.
     readonly property bool releaseWanted: Quickshell.env("QLFF_RELEASE") === "1"
     property bool released: false
+    property bool heldTested: false // The open card moved to a folder stays open until its close fades, then it is released.
+    property bool heldOpen: false // The card is open on the folder and settling before its close.
+    property bool heldClosing: false // The close is fading before the release is pinned.
+    readonly property bool heldOwned: root.releaseWanted && root.heldOpen && !root.heldTested // The held leg owns the cursor on its folder row while its card is open.
     // The first prepared parse of a run is the worker's; later opens reuse the entry Quick Look stored itself.
     property bool compared: false
     // True while a real key's event loop runs: a poll tick inside it must not finish the run, as Qt.exit there tears the root down under the key's own handler.
@@ -308,9 +312,9 @@ ShellRoot {
                 var step = root.cur()
                 var open = root.pv() !== null && root.pv().active
                 // A move keeps the card open on the previous file; any other step starts from a closed card with the cursor on its file.
-                if (step.via === "move" ? !open : open) { root.quiet = 0; return }
+                if (!root.heldOwned && (step.via === "move" ? !open : open)) { root.quiet = 0; return }
                 var row = pane.rowFor(pane.cursorIndex)
-                if (step.via !== "move" && (!row || row.n !== step.name)) {
+                if (step.via !== "move" && (!row || row.n !== step.name) && !root.heldOwned) {
                     // A capped or rest step's row says 900 bytes, as a listing does for a file that grew since, so only the file's own type can refuse it.
                     if (step.expect === "capped" || step.expect === "rest") {
                         var stale = pane.rowFor(root.indexOf(step.name))
@@ -338,6 +342,22 @@ ShellRoot {
                 }
                 if (++root.quiet < root.quietPolls) return
                 if (root.releaseWanted && !root.released) { Fresh.release(root); return }
+                // The held move runs only on the rebuilt closed card with its fresh prepare, never on the state from before the move.
+                if (root.releaseWanted && root.released && !root.heldOpen) {
+                    if (root.pv() === null) return
+                    if (root.prepare.preparedPath !== root.target() || root.prepare.picturesSettled === false) return
+                    Fresh.releaseHeldOpen(root)
+                    return
+                }
+                // The close runs a settle after the move and the pin a settle after the close, so neither destroys mid-settle nor mistakes a fade for a leak.
+                if (root.releaseWanted && root.heldOpen && !root.heldClosing) {
+                    Fresh.releaseHeldClose(root)
+                    return
+                }
+                if (root.releaseWanted && root.heldClosing && !root.heldTested) {
+                    Fresh.releaseHeldDone(root)
+                    return
+                }
                 if (root.sweeping) {
                     root.readsBefore = root.prepare.reads
                     root.sweepLeft = root.sweepMoves

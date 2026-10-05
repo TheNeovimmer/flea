@@ -1,5 +1,6 @@
 .pragma library
 .import "flea/js/Markdown.js" as Markdown
+.import "flea/js/PreviewKeys.js" as PreviewKeys
 
 // Object keys in sorted order, because a block that crossed the worker's boundary comes back with its keys sorted.
 function canon(v) {
@@ -74,6 +75,37 @@ function release(root) {
     if (root.pv() !== null) root.fail("a move to a folder row left Quick Look built")
     root.released = true
     pane.cursorIndex = indexOf(root, root.cur().name)
+    root.quiet = 0
+}
+
+// An open card survives a move to a folder row and is released by the close behind it, so the held guard never leaks a closed card.
+function releaseHeldOpen(root) {
+    var pane = root.pane()
+    if (root.pv() === null) root.fail("held leg found no Quick Look built closed before the open")
+    root.log("HELD open " + root.cur().name + " reads=" + root.prepare.reads)
+    PreviewKeys.open(pane)
+    if (root.pv() === null || !root.pv().active) root.fail("held leg could not open Quick Look on " + root.cur().name)
+    pane.cursorIndex = indexOf(root, "img")
+    if (root.pv() === null) root.fail("a move to a folder row released the open Quick Look")
+    else if (!root.pv().active) root.fail("a move to a folder row closed the open card")
+    root.heldOpen = true
+    root.quiet = 0
+}
+
+// The close runs a settle after the move, so the card is never destroyed mid-settle.
+function releaseHeldClose(root) {
+    if (root.pv() !== null) root.pv().close()
+    root.heldClosing = true
+    root.quiet = 0
+}
+
+// The fade is over a settle after the close, so a card still built is a leak and not a late fade.
+function releaseHeldDone(root) {
+    if (root.pv() !== null) root.fail("closing Quick Look on a folder row left it built after the fade")
+    root.log("HELD released")
+    var pane = root.pane()
+    pane.cursorIndex = indexOf(root, root.cur().name)
+    root.heldTested = true
     root.quiet = 0
 }
 

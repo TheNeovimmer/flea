@@ -49,6 +49,8 @@ Item {
         root.rested = false
         root.seq++
         root.releaseSizer()
+        // The move back waits on the new rest below, never on the entry from before it.
+        root.preparedPath = ""
         if (root.pictures.length > 0)
             root.pictures = []
         root.picturesSettled = true
