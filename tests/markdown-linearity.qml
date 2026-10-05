@@ -478,7 +478,8 @@ QtObject {
                 return "x" + unit.repeat(Math.floor(n / unit.length)) + "\ny";
             },
             spaceIndent: function (n) {
-                var unit = "\n" + " ".repeat(10) + "&#32;";
+                var longIndent = 10;
+                var unit = "\n" + " ".repeat(longIndent) + "&#32;";
                 return "a" + unit.repeat(Math.floor(n / unit.length)) + "\nb";
             },
             punctTail: function (n) {
