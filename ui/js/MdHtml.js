@@ -8,9 +8,9 @@ var TOKEN_OPEN = 57346
 var TOKEN_CLOSE = 57347
 var MAX_TAG_LENGTH = 4096
 
-// Sample input: "\uE0020\uE003" becomes "\uFFFD0\uFFFD" before document parsing reserves its token markers.
+// Sample input: "\uE0020\uE003" becomes "\uFFFD0\uFFFD" before document parsing reserves its token markers; "a\r\nb\rc" becomes "a\nb\nc", the line endings CommonMark names.
 function documentText(text) {
-    return String(text).replace(/[\uE002\uE003]/g, "\uFFFD")
+    return String(text).replace(/[\uE002\uE003]/g, "\uFFFD").replace(/\r\n?/g, "\n")
 }
 
 // Held spans use private-use delimiters and one shared token table, restored after escaping.

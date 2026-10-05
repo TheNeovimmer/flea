@@ -3,6 +3,7 @@
 # Source and back with r, closes, then shoots the preview column with the file under the
 # cursor. All fixtures and writes stay in its marked sandbox.
 # case_cap_markdown_kinds, below, shoots the other Markdown kinds the same way, also by name only.
+# case_cap_markdown_fences shoots every fence shape in Quick Look from each view, in the preview column and in Dual, also by name only.
 # Figures settle after the preview opens, so the shot waits for them.
 capmarkdown_wait_figures() {
     local figs=""
@@ -517,5 +518,65 @@ case_cap_markdown_kinds() {
         shot "cap-markdown-kind-column-${name%.md}"
     done
     printf 'CAPMARKDOWNKINDS %scolumn-nesting=ok\n' "$results"
+    kill_flea
+}
+# The fixture documents of case_cap_markdown_fences: each fence shape in LF and CRLF, a README, and a document past the 64 KiB line with fences on both sides of the head's cut.
+capmarkdownfences_fixture() {
+    local dir="$1" index filler
+    printf '# Fences\n\nBefore.\n\n```toml\n[preview]\nwidth = 240\n```\n\nBetween.\n\n~~~\nplain tilde fence\n~~~\n\nAfter.\n' > "$dir/fence-lf.md"
+    sed 's/$/\r/' "$dir/fence-lf.md" > "$dir/fence-crlf.md"
+    printf '# Four\n\n````md\n```\ninner\n```\n````\n\nAfter.\n' > "$dir/fence-four.md"
+    printf '# Item\n\n- item\n\n  ```sh\n  ls\n  ```\n- two\n\n> quoted\n>\n> ```\n> code\n> ```\n' > "$dir/fence-item.md"
+    cp "$repo/README.md" "$dir/fence-readme.md"
+    filler=$'A paragraph of filler text that runs long enough to wrap in a narrow card.\n\n'
+    {
+        printf '# Big\n\n```toml\nk = 1\n```\n\n'
+        for index in $(seq 1 94); do printf 'para %s\n\n' "$index"; done
+        printf '```toml\nk = 2\n```\n\n'
+        yes "$filler" | head -c 70000
+        printf '\n```toml\nk = 3\n```\n'
+    } > "$dir/fence-big.md" 2>/dev/null
+    sed 's/$/\r/' "$dir/fence-big.md" > "$dir/fence-bigcrlf.md"
+}
+# GM 2026-10-05: a code block's ``` fence lines drew as text in Quick Look from List view. Every fence document shot in Quick Look from List, Grid and Columns, in the preview column of Columns and in Quick Look from Dual, as cap-mdfence-<view>-<doc>.png; by name only.
+case_cap_markdown_fences() {
+    local dir="$fixture_root/capmdfence" view name results=""
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/listing"
+    capmarkdownfences_fixture "$dir/listing"
+    launch "$dir/listing"
+    wait_listing "$(find "$dir/listing" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+    for view in list grid columns; do
+        switch_view "$view"
+        for name in "$dir"/listing/fence-*.md; do
+            name="${name##*/}"
+            capmarkdownkinds_open "$name"
+            settle
+            shot "cap-mdfence-$view-${name%.md}"
+            key -k Escape >/dev/null
+            settle
+            [[ "$(ipc previewOpen)" == "false" ]] || fail "capmdfence: Escape did not close Quick Look on $name in $view"
+            results+="$view/${name%.md}=ok "
+        done
+    done
+    # The preview column itself, with no Quick Look open: the file under the cursor in Columns.
+    for name in "$dir"/listing/fence-*.md; do
+        name="${name##*/}"
+        goto_row "$(row_index_of "$name")"
+        settle
+        capmarkdown_wait_column_rendered
+        shot "cap-mdfence-columnpane-${name%.md}"
+    done
+    click_chrome dual
+    settle
+    for name in "$dir"/listing/fence-*.md; do
+        name="${name##*/}"
+        capmarkdownkinds_open "$name"
+        settle
+        shot "cap-mdfence-dual-${name%.md}"
+        key -k Escape >/dev/null
+        settle
+    done
+    printf 'CAPMDFENCE %scolumnpane=ok dual=ok\n' "$results"
     kill_flea
 }
