@@ -5,6 +5,8 @@
 .import "../../ui/js/MdRun.js" as Run
 .import "../../ui/js/MdRefs.js" as Refs
 .import "../../ui/js/MdLeaf.js" as Leaf
+.import "../../ui/js/MdEscape.js" as Escape
+.import "sourcefixture.js" as Source
 
 function run(check) {
     var dir = "/home/u/docs"
@@ -271,7 +273,10 @@ function run(check) {
     var mdH2 = Markdown.blocks("## Sub", dir, "#181825", ink)[0]
     check("mdfid2 HTML h2 level is 2", htmlH2.level, 2)
     check("mdfid2 HTML h2 text matches Markdown h2", htmlH2.text, mdH2.text)
-    // U+202F narrow no-break space, about 4 px at body 14, pads the chip inside its background.
-    var chipPad = "\u202F"
+    // A no-break space in a span MarkdownText sizes to 4 px at body 14, pads the chip inside its background.
+    var chipPad = '<span style="font-size:chippad">&nbsp;</span>'
     check("mdfid2 code chip pads both sides", Markdown.prepare("Use `x` here.", dir, undefined, "#181825", ink).indexOf(chipPad + "x" + chipPad) >= 0, true)
+    // The text sizing the pad quotes the parser's mark, so a renamed mark leaves a pad Qt draws at a whole cell.
+    check("MarkdownText sizes the mark the parser emits", Source.source("ui/MarkdownText.qml").indexOf("'" + Escape.CHIP_PAD_MARK + "'") >= 0, true)
+    check("the parser's pad is the mark and one no-break space", Escape.chipPad(), Escape.CHIP_PAD_MARK + "&nbsp;</span>")
 }

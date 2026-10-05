@@ -113,15 +113,13 @@ function mergeIntervals(a, b) {
     return out
 }
 
-// U+202F narrow no-break space, about 4 px at body 14, pads the chip inside its background.
-var CHIP_PAD = "\u202F"
 // An inline code span as styled HTML, content escaped; math keeps its kind tag for the later figure unit.
 function codeHtml(content, chrome, kind) {
     if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(chrome || "")))
         return null
     var tag = kind === "math" ? '<code data-math="inline" style="background-color:' + chrome + '">'
         : '<code style="background-color:' + chrome + '">'
-    return tag + CHIP_PAD + escapeHtmlText(content) + CHIP_PAD + "</code>"
+    return tag + Esc.chipPad() + escapeHtmlText(content) + Esc.chipPad() + "</code>"
 }
 
 function escapeHtmlText(content) {

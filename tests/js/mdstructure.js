@@ -248,21 +248,21 @@ function run(check) {
     check("math cannot close after whitespace", styled("$x $"), "$x $")
     check("math cannot close before a digit", styled("$x$2"), "$x$2")
     check("valid math still styles", styled("$x+1$"),
-        '<code data-math="inline" style="background-color:#181825">\u202Fx&#43;1\u202F</code>')
+        '<code data-math="inline" style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>x&#43;1<span style="font-size:chippad">&nbsp;</span></code>')
     check("math cannot pair across code", styled("$a `code` b$"),
-        '$a <code style="background-color:#181825">\u202Fcode\u202F</code> b$')
+        '$a <code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>code<span style="font-size:chippad">&nbsp;</span></code> b$')
     var codeDollars = MdInline.spanIntervals("x `$a` y `$b`")
     check("dollars inside code produce no math intervals", codeDollars.join(","), "2,6,1,0,9,13,1,0")
     check("math after code still styles", styled("`$x` then $y$"),
-        '<code style="background-color:#181825">\u202F&#36;x\u202F</code> then '
-        + '<code data-math="inline" style="background-color:#181825">\u202Fy\u202F</code>')
+        '<code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>&#36;x<span style="font-size:chippad">&nbsp;</span></code> then '
+        + '<code data-math="inline" style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>y<span style="font-size:chippad">&nbsp;</span></code>')
     check("a closing run swallows the spans inside it", MdInline.spanIntervals("`a ``b`` c`").join(","), "0,11,1,0")
     check("math pairs on both sides of a code span", styled("$x$ `c` $y$"),
-        '<code data-math="inline" style="background-color:#181825">\u202Fx\u202F</code> '
-        + '<code style="background-color:#181825">\u202Fc\u202F</code> '
-        + '<code data-math="inline" style="background-color:#181825">\u202Fy\u202F</code>')
+        '<code data-math="inline" style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>x<span style="font-size:chippad">&nbsp;</span></code> '
+        + '<code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>c<span style="font-size:chippad">&nbsp;</span></code> '
+        + '<code data-math="inline" style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>y<span style="font-size:chippad">&nbsp;</span></code>')
     check("backticks inside a closed span cannot open the next span", styled("`` ` `` and `x`"),
-        '<code style="background-color:#181825">\u202F&#96;\u202F</code> and <code style="background-color:#181825">\u202Fx\u202F</code>')
+        '<code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>&#96;<span style="font-size:chippad">&nbsp;</span></code> and <code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>x<span style="font-size:chippad">&nbsp;</span></code>')
     check("an escaped dollar cannot open math", MdInline.spanIntervals("\\$x$").length, 0)
     check("an escaped dollar cannot close math", MdInline.spanIntervals("$x\\$").length, 0)
     check("an even backslash run leaves the dollar active", MdInline.spanIntervals("\\\\$x$").join(","), "2,5,1,1")
@@ -274,11 +274,11 @@ function run(check) {
     var longContent = "a".repeat(longContentLength - longTail.length) + longTail
     var longEscaped = "a".repeat(longContentLength - longTail.length) + "&#38;&#35;&#59;"
     check("a 1024-character code span escapes each input character once", styled("`" + longContent + "`"),
-        '<code style="background-color:#181825">\u202F' + longEscaped + '\u202F</code>')
+        '<code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>' + longEscaped + '<span style="font-size:chippad">&nbsp;</span></code>')
     var shortTail = "a".repeat(longContentLength - 1 - longTail.length) + longTail
     check("a code span just under the long-text length escapes each input character once",
-        styled("`" + shortTail + "`"), '<code style="background-color:#181825">\u202F'
-        + "a".repeat(longContentLength - 1 - longTail.length) + "&#38;&#35;&#59;\u202F</code>")
+        styled("`" + shortTail + "`"), '<code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>'
+        + "a".repeat(longContentLength - 1 - longTail.length) + '&#38;&#35;&#59;<span style="font-size:chippad">&nbsp;</span></code>')
     var everyAscii = ""
     for (var ascii = 1; ascii < 128; ascii++)
         everyAscii += String.fromCharCode(ascii)
@@ -539,7 +539,7 @@ function run(check) {
     check("md3u F3 tilde heading stays literal", MdLeaf.headingSafe("~~~python"), "\\~~~python")
     check("md3u F6 prices before maths pair only x", MdInline.spanIntervals("$5 and $10; $x$").join(","), "12,15,1,1")
     check("md3u F6 prices stay prose before maths", styled("$5 and $10; $x$"),
-        '$5 and $10; <code data-math="inline" style="background-color:#181825">\u202Fx\u202F</code>')
+        '$5 and $10; <code data-math="inline" style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>x<span style="font-size:chippad">&nbsp;</span></code>')
     var dispOpen = Markdown.blocks("$$\nx^2\n", dir, chrome, ink)
     check("an unterminated display stays prose", dispOpen.map(function (b) { return b.type }).join(","), "run")
     check("a figure source stays raw",

@@ -40,8 +40,8 @@ function run(check) {
     check("H5 a picture never reaches the importer as HTML", runs('a <picture><source srcset="img/logo.png"><img src="img/logo.png"></picture> b').indexOf("<img"), -1)
     var keys = runs("Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy.")
     check("H6 kbd draws as the inline code chip", keys,
-        'Press <code style="background-color:#181825">\u202FCtrl\u202F</code>+<code style="background-color:#181825">\u202FC\u202F</code> to copy.')
-    check("H6 a raw code tag wears the same chip", runs("a <code>x</code> b"), 'a <code style="background-color:#181825">\u202Fx\u202F</code> b')
+        'Press <code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>Ctrl<span style="font-size:chippad">&nbsp;</span></code>+<code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>C<span style="font-size:chippad">&nbsp;</span></code> to copy.')
+    check("H6 a raw code tag wears the same chip", runs("a <code>x</code> b"), 'a <code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>x<span style="font-size:chippad">&nbsp;</span></code> b')
     check("H6 without chrome kbd stays a plain code tag", runs("a <kbd>x</kbd> b", ""), "a <code>x</code> b")
     check("H6 a hostile chrome never reaches the tag", runs("a <kbd>x</kbd> b", 'red;"><b>'), "a <code>x</code> b")
     check("H7 sub and sup pass through", runs("H<sub>2</sub>O and mc<sup>2</sup>."), "H<sub>2</sub>O and mc<sup>2</sup>.")
@@ -97,7 +97,7 @@ function run(check) {
     check("H18 a break before a blank line keeps the paragraph break", runs("one<br>\n\ntwo"), "one<br />|two")
     check("H13 a lone angle bracket stays text", runs("1 < 2 and <3 here"), "1 &#60; 2 and &#60;3 here")
     check("H13 HTML in a code span stays literal", runs("use `<b>x</b>` here"),
-        'use <code style="background-color:#181825">\u202F&#60;b&#62;x&#60;&#47;b&#62;\u202F</code> here')
+        'use <code style="background-color:#181825"><span style="font-size:chippad">&nbsp;</span>&#60;b&#62;x&#60;&#47;b&#62;<span style="font-size:chippad">&nbsp;</span></code> here')
     check("H13 HTML in a fence stays verbatim", JSON.stringify(blocks('```html\n<div onclick="x">hi</div>\n```')),
         JSON.stringify([{ type: "fence", text: '<div onclick="x">hi</div>', info: "html" }]))
     // The parser spells every escaped punctuation as a numeric reference (mdspec), so the entity stays text in that form.

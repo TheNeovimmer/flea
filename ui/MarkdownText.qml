@@ -45,6 +45,16 @@ Text {
     // Rows of a table add their own cell padding on top of the box.
     property int cellPad: 0
 
+    // The parser pads a code chip with a no-break space in a span carrying this mark (MdEscape.CHIP_PAD_MARK), as Qt reads no em there.
+    readonly property string chipPadMark: '<span style="font-size:chippad">'
+    // The board pads a chip 4 px a side at body 14; the span's px is that over the face's space advance, so the pad's advance is those 4 px.
+    readonly property real chipPadBoardPx: 4
+    readonly property real boardBodyPx: 14
+    readonly property int chipPadPx: Math.max(1, Math.round(root.chipPadBoardPx * root.bodyPx / root.boardBodyPx * root.bodyPx / Math.max(1, metrics.advanceWidth(" "))))
+    function padSized(source) {
+        return source.indexOf(root.chipPadMark) < 0 ? source : source.split(root.chipPadMark).join('<span style="font-size:' + root.chipPadPx + 'px">')
+    }
+
     // The host supplies the scheme gate (Markdown.isExternalLink), as no import of the parser fits the standalone probe copy.
     property var linkGate: null
     // One handler for every Markdown text: a link the gate passes opens in the default application, all else opens nothing.
@@ -53,7 +63,7 @@ Text {
             Qt.openUrlExternally(link)
     }
 
-    text: root.pictures !== null ? root.pictures.shown : root.markdown
+    text: root.padSized(root.pictures !== null ? root.pictures.shown : root.markdown)
     textFormat: Text.MarkdownText
     wrapMode: Text.Wrap
     color: Theme.color.foreground

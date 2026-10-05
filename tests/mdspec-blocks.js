@@ -3,9 +3,9 @@
 // The spec harness's adapter: Flea's block model, plus Qt's drawing of each block's text, as the HTML a reader would see.
 .import "mdspec-qt.js" as Qt
 
-// The chip pads its background with U+202F, so the comparison drops them before Qt draws.
+// The chip pads its background with a no-break space span, so the comparison drops them before Qt draws.
 function stripPads(text) {
-    return String(text).replace(/\u202F/g, "")
+    return String(text).replace(/<span style="font-size:chippad">&nbsp;<\/span>/g, "")
 }
 
 // Sample input: "<p>a <em>b</em></p>" answers "a <em>b</em>"; anything else is returned whole.
