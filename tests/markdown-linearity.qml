@@ -93,7 +93,7 @@ QtObject {
             return text.slice(start + 1, end - 1);
         }
         let root, file;
-        const Markdown = { blocks: () => ['fallback'], dirOf: () => '/doc' };
+        const Markdown = { blocks: () => ['fallback'], dirOf: () => '/doc', deepHead: () => ({ deep: false }), HEAD_BLOCKS: 96 };
         const parseFallback = { restart() {}, stop() {} };
         const parserLoader = { active: false, item: { sendMessage() {} } };
         const ask = new Function('root', 'file', 'Markdown', 'parseFallback', 'parserLoader', body('function askParse()'));
@@ -144,6 +144,17 @@ QtObject {
         reply(root, { seq: sent.seq, blocks: ['worker'], error: '' });
         check(parserLoader.active && root.parsedOffThread && root.blockList[0] === 'worker'
             && root.appliedSeq === root.parseSeq, 'large parse still sends and lands through the worker');
+        root.blockList = [];
+        root.rawText += 'y';
+        ask(root, file, Markdown, parseFallback, parserLoader);
+        check(sent.head === Markdown.HEAD_BLOCKS, 'a first parse asks the worker for the head');
+        reply(root, { seq: sent.seq, blocks: ['head'], error: '', partial: true });
+        check(root.blockList[0] === 'head' && root.parsing && root.appliedSeq !== root.parseSeq, 'the head draws while the parse still runs');
+        reply(root, { seq: sent.seq, blocks: ['head', 'tail'], error: '' });
+        check(root.blockList.length === 2 && !root.parsing && root.appliedSeq === root.parseSeq, 'the whole parse lands over the head');
+        root.rawText += 'z';
+        ask(root, file, Markdown, parseFallback, parserLoader);
+        check(sent.head === 0, 'a reparse with blocks drawn asks for no head');
         const lazy = readSource('markdown-lazy.qml');
         let shell = { done: false, log() { this.done = true; }, quit() {}, fail() { this.done = true; } };
         new Function('shell', 'md', body('function report()', lazy))(shell, { contentReady: false });
@@ -212,8 +223,8 @@ QtObject {
         if (mutant === true && name === "MdHtml.js")
             code = code.replace(/    if \(dead !== undefined && dead !== null && i < dead.tagDead\)\n        return null\n/, "");
         if (mutant === "suffix" && name === "MdBlocks.js")
-            code = code.replace("function blocks(source, dir, chrome, ink) {",
-                "function blocks(source, dir, chrome, ink) {\n"
+            code = code.replace("function blocks(source, dir, chrome, ink, headCount, onHead) {",
+                "function blocks(source, dir, chrome, ink, headCount, onHead) {\n"
                 + "    var suffixSink = 0;\n"
                 + "    for (var i = 0; i < source.length; i++) {\n"
                 + "        suffixSink += source.substring(i).lastIndexOf('z');\n"

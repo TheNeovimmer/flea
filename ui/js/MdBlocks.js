@@ -346,14 +346,14 @@ function collectReferences(source) {
     return state
 }
 
-function blocks(source, dir, chrome, ink) {
+function blocks(source, dir, chrome, ink, headCount, onHead) {
     var lines = Html.documentText(source).split("\n")
     var state = referenceState()
     blockPass(lines, state, undefined, true)
     if (state.deep === true)
         return [{ type: "deep", limit: NESTING_LIMIT }]
     var writer = Document.writer(state, dir, chrome, ink, blockPass)
-    blockPass(lines, state, writer.project, false)
+    blockPass(lines, state, onHead !== undefined && headCount > 0 ? writer.headed(headCount, onHead) : writer.project, false)
     return writer.finish()
 }
 

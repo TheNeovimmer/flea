@@ -1,5 +1,6 @@
 .import "../../ui/js/Markdown.js" as Markdown
 .import "../../ui/js/MdChunks.js" as Chunks
+.import "../../ui/js/MdBlocks.js" as Blocks
 .import "../../ui/js/MarkdownLists.js" as Lists
 
 // What an item or a quote holds besides prose: each block kind arrives as its own part, drawn with its top-level recipe.
@@ -144,4 +145,41 @@ function run(check) {
         var figure = held(wrap("See text\n```mermaid\ngraph TD\n```"))
         check(at + " draws a mermaid fence as a display figure part", JSON.stringify(figure.map(function (p) { return [p.type, p.kind, p.display] })), JSON.stringify([["run", undefined, undefined], ["figure", "mermaid", true]]))
     })
+
+    // The deep verdict reads only a bounded head of the text, so a pathological document is refused without a full parse or a worker.
+    function chain(prefix, n, tail) {
+        return new Array(n + 1).join(prefix) + tail
+    }
+    function deepByParse(doc) {
+        var list = blocks(doc)
+        return list.length === 1 && list[0].type === "deep"
+    }
+    var flood = new Array(600).join("a paragraph line that fills the document well past the head\n")
+    var corpus = [chain("> ", 400, "x\n") + flood, chain("> ", 33, "x\n"), chain("> ", 32, "x\n"), chain("- ", 33, "x\n"), chain("- ", 32, "x\n"),
+        chain("> - ", 17, "x\n"), chain("> - ", 16, "x\n"), "```\n" + chain("> ", 400, "x\n") + "```\n", "text\n" + chain("> ", 40, "x\n"),
+        chain("  ", 5, "> ") + chain("> ", 33, "x\n"), flood + chain("> ", 400, "x\n"),
+        "<!--\n" + chain("> ", 400, "x\n") + flood + "-->\n", "<!-- " + chain("> ", 400, "x\n") + flood]
+    corpus.forEach(function (doc, at) {
+        var head = Markdown.deepHead(doc)
+        check("document " + at + ": a deep head is deep to the full parse too", head.deep ? deepByParse(doc) : true, true)
+        check("document " + at + ": the head scans at most its bound", head.scanned <= Markdown.DEEP_HEAD_BYTES, true)
+    })
+    check("a deep chain at the top of a large document is called deep from the head", Markdown.deepHead(corpus[0]).deep, true)
+    check("a deep head stops short of the whole text", Markdown.deepHead(corpus[0]).scanned < corpus[0].length, true)
+    check("a chain of 33 quotes is deep and one of 32 is not", Markdown.deepHead(corpus[1]).deep + "/" + Markdown.deepHead(corpus[2]).deep, "true/false")
+    check("33 items are deep and 32 are not", Markdown.deepHead(corpus[3]).deep + "/" + Markdown.deepHead(corpus[4]).deep, "true/false")
+    check("a deep chain only past the bound is deep to the parse and left to it", Markdown.deepHead(corpus[10]).deep + "/" + deepByParse(corpus[10]), "false/true")
+
+    // A big document sends its first blocks ahead once, and they are the first blocks of the whole parse.
+    var longDoc = new Array(400).join("## Section\n\nA paragraph with `code`, **bold** and a [link][ref].\n\n- one\n- two\n\n") + "[ref]: https://example.invalid/ref\n"
+    var sent = []
+    var whole = Blocks.blocks(longDoc, dir, chrome, ink, Markdown.HEAD_BLOCKS, function (head) { sent.push(head) })
+    check("a long document sends its head once", sent.length, 1)
+    check("the head holds exactly the head count", sent.length === 1 ? sent[0].length : -1, Markdown.HEAD_BLOCKS)
+    check("the head is the first blocks of the whole parse, a reference defined at the end included", sent.length === 1 ? JSON.stringify(sent[0]) : "", JSON.stringify(whole.slice(0, Markdown.HEAD_BLOCKS)))
+    check("the head resolves a reference defined after it", sent.length === 1 && JSON.stringify(sent[0]).indexOf("example.invalid/ref") >= 0, true)
+    check("the whole parse is unchanged by a head", JSON.stringify(whole), JSON.stringify(Markdown.blocks(longDoc, dir, chrome, ink)))
+    var shortSent = 0
+    Blocks.blocks("# Title\n\nshort\n", dir, chrome, ink, Markdown.HEAD_BLOCKS, function () { shortSent++ })
+    check("a document shorter than the head sends none", shortSent, 0)
 }

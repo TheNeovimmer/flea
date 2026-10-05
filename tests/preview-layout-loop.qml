@@ -72,15 +72,16 @@ ShellRoot {
     // The view the host draws, read the way the ipc does: Quick Look's shownView, the column item's own view.
     function drawnView(md) { return shell.columnHost ? md.view : look.markdownView() }
     function flick(item) { return shell.find(item, "Flickable") }
-    // Rendered is the lazy list itself, Source the first Flickable; a list's margins sit outside its content.
-    function mdFlick(md) { return md.view === "source" ? shell.flick(md) : md.bodyItem }
+    // Rendered and Source are each a list; the Rendered list's margins sit outside its content.
+    function mdFlick(md) { return md.view === "source" ? md.sourceItem : md.bodyItem }
     function top(f) { return f.originY - f.topMargin }
     function bottom(f) { return f.originY + f.contentHeight - f.height + f.bottomMargin }
+    // The Source list's first chunk holds the whole of a short document.
     function sourceText(md) {
-        var children = shell.flick(md).contentItem.children
+        var children = md.sourceItem.contentItem.children
         for (var i = 0; i < children.length; i++)
-            if (String(children[i]).indexOf("QQuickText") === 0 && children[i].text === md.rawText)
-                return children[i]
+            if (children[i].objectName === "sourceChunk" && children[i].index === 0 && children[i].label.text === md.rawText)
+                return children[i].label
         shell.fail("source text is absent")
         return null
     }
@@ -88,7 +89,7 @@ ShellRoot {
     function extent(md) {
         if (md.view !== "source") return md.bodyItem.contentHeight + md.bodyItem.topMargin + md.bodyItem.bottomMargin
         var text = shell.sourceText(md)
-        return text ? text.height + 2 * md.insetY : 0
+        return text ? text.implicitHeight + 2 * md.insetY : 0
     }
     // The bar the viewer draws for this flickable: inside the Source flickable, on the frame for the lazy list.
     function barFor(md, f) {
@@ -218,7 +219,7 @@ ShellRoot {
             var text = shell.sourceText(md)
             if (!text) return
             if (!shell.check(text.x === md.insetX && text.width === f.width - 2 * md.insetX, "source text width changed")) return
-            if (!shell.check(Math.abs(f.contentHeight - Math.max(f.height, h)) < 0.1, "content height is stale")) return
+            if (!shell.check(Math.abs(f.contentHeight - h) < 0.1, "content height is stale")) return
         } else {
             if (!shell.check(md.bodyItem.width === md.width - 2 * md.insetX, "rendered text width changed")) return
             if (!shell.check(shell.delegatesFitList(md), "a block delegate is not as wide as the list")) return

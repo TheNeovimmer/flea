@@ -152,11 +152,49 @@ function splitRow(line) {
     return Leaf.splitRow(line)
 }
 
+// A big document's first screen draws from this many blocks, which the worker sends ahead of the rest.
+var HEAD_BLOCKS = 96
+
 function blocks(source, dir, chrome, ink) {
     return Blocks.blocks(source, dir, chrome, ink)
+}
+
+// The deep verdict reads this many bytes of the head at most: the pass is forward only, so a head that nests too deep is deep in the whole text.
+var DEEP_HEAD_BYTES = 16384
+
+// Sample: "> > > ...x" (400 levels) answers { deep: true, scanned: 800 }; a head within the limit that never nests too deep answers deep false.
+function deepHead(source) {
+    var head = String(source)
+    if (head.length > DEEP_HEAD_BYTES)
+        head = head.slice(0, Math.max(0, head.lastIndexOf("\n", DEEP_HEAD_BYTES)))
+    var state = Blocks.referenceState()
+    Blocks.blockPass(MdHtml.documentText(head).split("\n"), state, undefined, true)
+    return { deep: state.deep === true, scanned: head.length }
 }
 
 // The fenced info string naming a figure, or "" for code. Tests pin it.
 function figureKind(info) {
     return Blocks.figureKind(info)
+}
+
+// The Source view lays out chunks of whole lines about this many characters long, so a screenful of a large file costs a few chunks.
+var SOURCE_CHUNK_CHARS = 4096
+
+// Sample: "a\nb\nc" with a chunk size of 2 answers [0, 2, 4]; every chunk after the first starts just past a newline.
+function sourceChunkStarts(text) {
+    var starts = [0]
+    var at = SOURCE_CHUNK_CHARS
+    while (at < text.length) {
+        var cut = text.indexOf("\n", at)
+        if (cut < 0 || cut + 1 >= text.length)
+            break
+        starts.push(cut + 1)
+        at = cut + 1 + SOURCE_CHUNK_CHARS
+    }
+    return starts
+}
+
+// Chunk i of the text without the newline that ends it, so the chunks joined by newlines are the text again.
+function sourceChunk(text, starts, i) {
+    return text.slice(starts[i], i + 1 < starts.length ? starts[i + 1] - 1 : text.length)
 }

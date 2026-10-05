@@ -47,6 +47,25 @@ ShellRoot {
         }
         shell.log("blocks=" + md.blockList.length + " delegates=" + md.delegateCount()
             + " offthread=" + md.parsedOffThread)
+        md.view = "source"
+        Qt.callLater(shell.reportSource)
+    }
+
+    // The same 560 KiB as Source: a screenful of chunks is laid out, and the end of the list shows the file's last line.
+    function reportSource() {
+        var list = md.sourceItem
+        list.forceLayout()
+        var first = md.sourceChars
+        list.positionViewAtEnd()
+        list.forceLayout()
+        var tail = md.rawText.split("\n").filter(function (l) { return l.indexOf("var section") === 0 }).pop()
+        var reached = false
+        for (var i = 0; i < list.contentItem.children.length; i++) {
+            var row = list.contentItem.children[i]
+            if (row.objectName === "sourceChunk" && String(row.label.text).indexOf(tail) >= 0)
+                reached = true
+        }
+        shell.log("source chars=" + first + " total=" + md.rawText.length + " endlaid=" + md.sourceChars + " lastline=" + reached)
         shell.done = true
         shell.quit()
     }

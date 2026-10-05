@@ -192,7 +192,9 @@ ShellRoot {
                 plain: plainProbe.getText(0, plainProbe.length), row: row })
         }
         var notice = md.noticeItem === undefined ? null : md.noticeItem
-        var noticeRect = notice !== null && notice.visible ? { x: notice.x, y: notice.y, w: notice.width, h: notice.height } : null
+        // The notice is list content, so its place in the pane is mapped, not read from its own coordinates.
+        var noticeAt = notice !== null ? notice.mapToItem(md, 0, 0) : null
+        var noticeRect = notice !== null && notice.visible ? { x: noticeAt.x, y: noticeAt.y, w: notice.width, h: notice.height } : null
         geo = { name: names[step], w: shell.paneW, h: shell.paneH, ground: rgb(shell.ground), chrome: hexRgb(String(md.chromeHex)),
             blocks: blocks, texts: texts, blockGap: md.blockGap, lineBox: Math.round(Flea.Theme.font.body * shell.lineBoxRatio), hAdvance: Math.floor(hMetrics.advanceWidth),
             tooDeep: md.tooDeep, notice: noticeRect, noticeText: notice === null ? "" : notice.text }

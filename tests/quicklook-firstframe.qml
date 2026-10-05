@@ -29,6 +29,9 @@ ShellRoot {
     readonly property int sweepRestMs: 300
     // One byte past the 64 KiB cap, so a read that returns it knows the file is over.
     readonly property int capBytes: 65537
+    // A big document's first frame builds this many block delegates at most, and a too-deep one lays out this many Source chunks at most.
+    readonly property int firstScreenDelegates: 40
+    readonly property int firstScreenChunks: 6
 
     property int stage: 0
     property int step: 0
@@ -36,6 +39,8 @@ ShellRoot {
     property int frames: 0
     property int emptyFrames: 0
     property int contentFrame: 0
+    property var atContent: ({ parsing: false, look: false, delegates: -1 })
+    property int maxSourceChars: 0
     property int failures: 0
     property int sweepLeft: 0
     property int restedMs: 0
@@ -93,6 +98,9 @@ ShellRoot {
     function firstBlock() {
         var p = root.pv()
         var md = p ? p.markdownItem : null
+        // A too-deep document draws its notice and its Source, which is its content.
+        var inner = root.doc()
+        if (root.cur().expect === "deep") return inner && inner.tooDeep && inner.sourceChars > 0 && inner.noticeItem.visible ? inner.noticeItem : null
         var block = md ? md.blockItem(0) : null
         var title = root.cur().name.replace(".md", "")
         return block && block.block && String(block.block.text).indexOf(title) >= 0 ? block : null
@@ -122,7 +130,11 @@ ShellRoot {
             root.frames++
             var block = root.firstBlock()
             if (!block) root.emptyFrames++
-            else if (block.height > 0 && root.contentFrame === 0) root.contentFrame = root.frames
+            else if (block.height > 0 && root.contentFrame === 0) {
+                root.contentFrame = root.frames
+                root.atContent = { parsing: root.doc().parsing, look: root.pv().lookReady, delegates: root.doc().delegateCount() }
+            }
+            if (root.doc()) root.maxSourceChars = Math.max(root.maxSourceChars, root.doc().sourceChars)
             root.log("FRAME " + root.frames + " block=" + (block !== null))
         }
     }
@@ -183,6 +195,7 @@ ShellRoot {
         root.frames = 0
         root.emptyFrames = 0
         root.contentFrame = 0
+        root.maxSourceChars = 0
         var before = root.doc()
         root.blockedBefore = before ? Number(before.blockedReads) : 0
         root.stage = 2
@@ -202,7 +215,7 @@ ShellRoot {
             if (!root.pv().active) root.fail("step " + (root.step + 1) + " returned from the key without the card")
             if (step.expect === "inline" && blocks === 0)
                 root.fail("step " + (root.step + 1) + " returned from the key with 0 blocks")
-            if (step.expect === "async" && loads !== 0)
+            if ((step.expect === "async" || step.expect === "partial" || step.expect === "deep") && loads !== 0)
                 root.fail("step " + (root.step + 1) + " read " + step.name + " inside the key (" + loads + " load(s) landed before the event loop turned)")
         }
         root.log("KEYRETURNED " + (root.step + 1))
@@ -243,7 +256,7 @@ ShellRoot {
         var d = root.doc()
         var blocked = d ? d.blockedReads - root.blockedBefore : -1
         root.log("STEP " + n + " " + step.name + " " + step.expect + " frames=" + root.contentFrame + " empty=" + root.emptyFrames + " blocked=" + blocked)
-        if (!d || d.sourceChars !== 0) root.fail("step " + n + " laid out " + (d ? d.sourceChars : -1) + " characters of Source text while Rendered shows")
+        if (!d || (step.expect !== "deep" && d.sourceChars !== 0)) root.fail("step " + n + " laid out " + (d ? d.sourceChars : -1) + " characters of Source text while Rendered shows")
         if (step.expect === "inline") {
             if (root.emptyFrames !== 0) root.fail("step " + n + " drew the card " + root.emptyFrames + " time(s) without its first block")
             if (root.contentFrame !== 1) root.fail("step " + n + " reached content in frame " + root.contentFrame + ", want 1")
@@ -256,6 +269,24 @@ ShellRoot {
         } else if (blocked !== 0) {
             root.fail("step " + n + " blocked " + blocked + " time(s) for " + step.name + ", want 0")
         }
+        // A big document's first screen draws from the head of the parse, which is still running, and builds a screenful of delegates.
+        if (step.expect === "partial" && (!root.atContent.parsing || root.atContent.delegates > root.firstScreenDelegates))
+            root.fail("step " + n + " drew block 0 with the parse " + (root.atContent.parsing ? "running" : "done") + " and " + root.atContent.delegates + " delegates")
+        // The swap lets go of its held picture on that head too, or a move to a big document waits out the whole parse.
+        if (step.expect === "partial" && !root.atContent.look)
+            root.fail("step " + n + " held the swap while the head was drawn")
+        // A too-deep document is refused on the UI thread from its head, and only a screenful of its Source is laid out.
+        if (step.expect === "deep" && (!d.tooDeep || d.parsedOffThread || root.maxSourceChars === 0 || root.maxSourceChars > root.firstScreenChunks * Markdown.SOURCE_CHUNK_CHARS))
+            root.fail("step " + n + " deep=" + d.tooDeep + " offthread=" + d.parsedOffThread + " laid out up to " + root.maxSourceChars + " Source characters")
+    }
+
+    // The next step is a move on the open card, or a second Space closes, the same real key.
+    function leave() {
+        root.stage = 3
+        root.stageAt = Date.now()
+        var after = root.steps[root.step + 1]
+        if (after && after.via === "move") { root.step++; root.stage = 1; root.quiet = 0; root.stageAt = Date.now(); return }
+        root.keys.keyClick(Qt.Key_Space, Qt.NoModifier, -1)
     }
 
     Timer {
@@ -348,12 +379,15 @@ ShellRoot {
                 // Content in the card is the new document's own first block; the frame counter has seen it by the poll after.
                 if (!root.firstBlock() || root.contentFrame === 0) return
                 root.judge()
-                root.stage = 3
                 root.stageAt = Date.now()
-                // The next step is a move on the open card, or a second Space closes, the same real key.
-                var after = root.steps[root.step + 1]
-                if (after && after.via === "move") { root.step++; root.stage = 1; root.quiet = 0; root.stageAt = Date.now(); return }
-                root.keys.keyClick(Qt.Key_Space, Qt.NoModifier, -1)
+                // A head step lets the whole parse land before a next step that needs the worker, which a small file's parse never does.
+                var upcoming = root.steps[root.step + 1]
+                if (root.cur().expect === "partial" && upcoming && upcoming.expect !== "inline") { root.stage = 4; return }
+                root.leave()
+                return
+            }
+            if (root.stage === 4) {
+                if (!root.doc().parsing) root.leave()
                 return
             }
             if (root.stage === 3) {

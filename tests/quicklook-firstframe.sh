@@ -64,6 +64,8 @@ printf '# d-small\n\nA second small document, so the held key has two rows to sw
 chunk=$'## Section\n\nA paragraph with `code`, **bold** and a [link](https://example.invalid) that runs long enough to wrap in a narrow card.\n\n- item one\n- item two\n\n'
 { printf '# b-big\n\n'; yes "$chunk" | head -c 1040000; } > "$test_root/fixture/b-big.md" 2>/dev/null
 { printf '# c-mid\n\n'; yes "$chunk" | head -c 300000; } > "$test_root/fixture/c-mid.md" 2>/dev/null
+# A 300 KB document nested 400 quotes deep: the verdict comes from its head, and its Source is laid out a screenful at a time.
+{ printf '%.0s> ' $(seq 400); printf 'deep\n'; yes 'a paragraph line that fills the document well past the head, with words enough to wrap in a narrow card' | head -c 300000; } > "$test_root/fixture/f-deep.md" 2>/dev/null
 # A named pipe named like a document: a read of it never ends, so no read may touch it.
 mkfifo "$test_root/fixture/e-pipe.md" || exit 1
 printf 'plain\n' > "$test_root/fixture/zzz.txt"
@@ -97,7 +99,8 @@ notes=$(repeat "" "$cycles" a-notes.md:inline)
 run_leg reduced "$notes" "" 1 1 90
 run_leg motion "$notes" "" "" 1 90
 # Small then big then small, closed and reopened, then a move on the open card in both orders (small to big and big to small).
-run_leg order "a-notes.md:inline,b-big.md:async,a-notes.md:inline,c-mid.md:async,d-small.md:inline,b-big.md:async,d-small.md:inline,a-notes.md:inline,b-big.md:async:move,c-mid.md:async:move,d-small.md:inline:move,c-mid.md:async:move,b-big.md:async:move,a-notes.md:inline:move" "" 1 "" 120
+run_leg order "a-notes.md:inline,b-big.md:partial,a-notes.md:inline,c-mid.md:async,d-small.md:inline,b-big.md:partial,d-small.md:inline,a-notes.md:inline,b-big.md:partial:move,c-mid.md:async:move,d-small.md:inline:move,c-mid.md:async:move,b-big.md:partial:move,a-notes.md:inline:move" "" 1 "" 120
+run_leg deep "f-deep.md:deep,a-notes.md:inline,f-deep.md:deep" "" 1 "" 90
 # A share, a phone and a USB drive read nothing ahead and nothing inside the key; the pane refuses past 256 KiB there, so only small files.
 for class in network phone usb; do
     run_leg "class-$class" "a-notes.md:async,d-small.md:async" "$class" 1 "" 60

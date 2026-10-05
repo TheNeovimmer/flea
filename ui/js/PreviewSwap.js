@@ -64,9 +64,9 @@ function columnReady(p) {
     return true
 }
 
-// Quick Look is ready when nothing loads, a PDF shows a page or is refused, or the interim shows whole.
-function lookReady(status, isPdf, pdfShown, pdfFailed, interimShown) {
-    if (interimShown === true)
+// Quick Look is ready when nothing loads, a PDF shows a page or is refused, or the interim or a Markdown head shows whole.
+function lookReady(status, isPdf, pdfShown, pdfFailed, interimShown, headShown) {
+    if (interimShown === true || headShown === true)
         return true
     if (status === "loading")
         return false

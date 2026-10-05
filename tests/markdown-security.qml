@@ -176,17 +176,21 @@ ShellRoot {
         })
     }
 
-    // Sample: the Source view's Flickable holds one visible Text whose text is the whole file.
-    function sourceTextItem(item) {
-        if (item.textFormat !== undefined && item.visible && String(item.text) === sourceView.rawText)
-            return item
-        var children = item.children || []
-        for (var i = 0; i < children.length; i++) {
-            var found = sourceTextItem(children[i])
-            if (found)
-                return found
+    // Sample: the Source view lays out the file as plain-text chunk delegates; walking the list builds each, and joined by newlines they are the file.
+    function sourceWhole() {
+        var list = sourceView.sourceItem
+        var parts = []
+        var plain = true
+        for (var i = 0; i < list.count; i++) {
+            list.positionViewAtIndex(i, ListView.Beginning)
+            list.forceLayout()
+            var chunk = list.itemAtIndex(i)
+            if (!chunk)
+                return null
+            plain = plain && chunk.label.textFormat === Text.PlainText
+            parts.push(String(chunk.label.text))
         }
-        return null
+        return { text: parts.join("\n"), plain: plain }
     }
 
     function finishDrain() {
@@ -199,12 +203,12 @@ ShellRoot {
         }
         draining = true
         // The zero requests count only over text the Source view shows, and plain text is what keeps it from asking.
-        var drawn = sourceTextItem(sourceView)
-        if (sourceView.view !== "source" || !drawn)
+        var whole = sourceWhole()
+        if (sourceView.view !== "source" || whole === null || whole.text !== sourceView.rawText)
             validationFailures.push("Source view shows no Text holding the corpus")
-        else if (drawn.textFormat !== Text.PlainText)
+        else if (!whole.plain)
             validationFailures.push("Source view Text is not plain text")
-        else if (String(drawn.text).indexOf("![front](") < 0 || String(drawn.text).indexOf("![math](") < 0)
+        else if (whole.text.indexOf("![front](") < 0 || whole.text.indexOf("![math](") < 0)
             validationFailures.push("Source view Text lacks the front matter and display math placements")
         // A fence opened in a list item or a quote ends with its container, so the prose and image after it are drawn, and the fence's own lines are not.
         var fenceCases = [{ text: "- ```\n  code\nafter ![x](u)\n", drawn: true }, { text: "> ```\n> code\nafter ![x](u)\n", drawn: true },
