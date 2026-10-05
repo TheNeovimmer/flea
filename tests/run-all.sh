@@ -13,8 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-# Omarchy exports gtk3, whose platform theme opens a display even for offscreen Qt.
-# The headless suites use Qt's generic theme so they can run with no display.
+# Omarchy exports gtk3, whose platform theme opens a display even for offscreen Qt, so the headless suites take Qt's generic theme.
 export QT_QPA_PLATFORMTHEME=generic
 
 # Both profiles unconditionally, the debug binary for the suites that drive it and the release one for thumbs.sh: an `[ ! -x <path> ]` guard is satisfied by a stale binary from an older commit, and measured on 2026-09-05 the debug and release hashes were unchanged across a whole run-all over edited source.
