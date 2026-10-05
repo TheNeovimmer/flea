@@ -77,6 +77,7 @@ Item {
         Flea.MarkdownTable {
             block: view.block
             preview: view.preview
+            availableWidth: view.width
         }
     }
 

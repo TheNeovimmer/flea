@@ -1,6 +1,7 @@
 import QtQuick
 import "." as Flea
 import "js/Markdown.js" as Markdown
+import "js/MarkdownTableFit.js" as Fit
 
 // A table hugs its cells with Grid, Column and Row, never QtQuick.Layouts, so the preview never loads it.
 Column {
@@ -8,12 +9,14 @@ Column {
     objectName: "tableGrid"
 
     // The parsed table chunk, and the preview that sets the document's size and gap.
-    property var block: ({ head: [], aligns: [], rows: [], measure: [], cols: 0 })
+    property var block: ({ head: [], aligns: [], rows: [], measure: [], pictures: [], weights: [], words: [], cols: 0 })
     property Item preview: null
+    // The width the block column gives the table; columns wrap inside it, and 0 means no limit.
+    property real availableWidth: 0
     readonly property int bodyPx: root.preview.bodyPx
     // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
     y: root.block.joined === true ? -root.preview.blockGap : 0
-    width: root.tableWidth()
+    width: root.tableWidth
     spacing: 0
 
     Row {
@@ -37,7 +40,7 @@ Column {
 
     Rectangle {
         visible: root.block.head.length > 0
-        width: root.tableWidth()
+        width: root.tableWidth
         height: Theme.spacing.hairline
         color: Theme.color.foreground
         opacity: root.preview.ruleOpacity
@@ -47,7 +50,7 @@ Column {
         model: root.block.rows.length
         delegate: Column {
             readonly property int row: index
-            width: root.tableWidth()
+            width: root.tableWidth
             spacing: 0
 
             Row {
@@ -67,7 +70,7 @@ Column {
             }
 
             Rectangle {
-                width: root.tableWidth()
+                width: root.tableWidth
                 height: Theme.spacing.hairline
                 color: Theme.color.foreground
                 opacity: root.preview.ruleOpacity
@@ -75,17 +78,87 @@ Column {
         }
     }
 
-    // Invisible measurers carry each column's longest cell, measured by the parser over the whole table, so chunks of one table share widths.
+    // Invisible measurers carry each column's widest cell, measured by the parser over the whole table, so chunks share widths.
+    // A column with an image cell adds a second measurer for it, since the parser cannot know the image's width.
     Repeater {
         id: measurers
-        model: root.columns
+        model: root.measureTexts
         delegate: Text {
+            objectName: "measurer"
             visible: false
-            text: index < root.block.measure.length ? root.block.measure[index] : ""
+            text: modelData
             textFormat: Text.MarkdownText
             font.family: Theme.font.family
             font.pixelSize: root.bodyPx
+            // A header cell may set the width and is bold, so every measurer is: chunks without the header must agree.
+            font.bold: true
         }
+    }
+
+    // The measure of each column, then the picture cell of every column that has one, in the order the measurers are built.
+    readonly property var measureTexts: {
+        var texts = []
+        var pictures = root.block.pictures || []
+        for (var c = 0; c < root.columns; c++)
+            texts.push(c < root.block.measure.length ? root.block.measure[c] : "")
+        for (var p = 0; p < root.columns; p++) {
+            if (p < pictures.length && pictures[p] !== "")
+                texts.push(pictures[p])
+        }
+        return texts
+    }
+    // The empty gap each column keeps beside its text, and the width of one glyph when the parser measured no text.
+    readonly property int cellGap: 14
+    readonly property real fallbackGlyphEm: 0.6
+    // A column's text width: the wider of its measure and its picture cell, once the measurers have laid out.
+    readonly property var columnPx: {
+        // Count and implicitWidth notify when a measurer arrives and lays out; itemAt alone notifies nothing.
+        var widths = []
+        var pictures = root.block.pictures || []
+        var next = root.columns
+        for (var c = 0; c < root.columns; c++) {
+            var own = measurers.count > c ? measurers.itemAt(c) : null
+            var px = own ? own.implicitWidth : 0
+            if (c < pictures.length && pictures[c] !== "") {
+                var extra = measurers.count > next ? measurers.itemAt(next) : null
+                px = Math.max(px, extra ? extra.implicitWidth : 0)
+                next++
+            }
+            widths.push(px)
+        }
+        return widths
+    }
+    // Pixels a column of the parser's width weight draws: the table's measured text over its weight, so the longest word converts to pixels.
+    readonly property real glyphPx: {
+        var px = 0
+        var weight = 0
+        var weights = root.block.weights || []
+        for (var c = 0; c < root.columns; c++) {
+            if (c < weights.length && weights[c] > 0) {
+                px += root.columnPx[c]
+                weight += weights[c]
+            }
+        }
+        return weight > 0 ? px / weight : root.bodyPx * root.fallbackGlyphEm
+    }
+    // Each column's width: natural when the table fits the block, else shared by Fit with every column keeping its longest word first.
+    readonly property var widths: {
+        var natural = []
+        var minimum = []
+        var words = root.block.words || []
+        for (var c = 0; c < root.columns; c++) {
+            natural.push(root.columnPx[c] + root.cellGap)
+            minimum.push((c < words.length ? words[c] : 0) * root.glyphPx + root.cellGap)
+        }
+        // A wide glyph takes two, so no column goes under two glyphs of text.
+        var least = root.cellGap + Math.ceil(2 * root.glyphPx)
+        return root.availableWidth > 0 ? Fit.fit(natural, minimum, root.availableWidth, least) : natural
+    }
+    readonly property real tableWidth: {
+        var total = 0
+        for (var c = 0; c < root.widths.length; c++)
+            total += root.widths[c]
+        return total
     }
 
     // Helpers over the block, so delegates read cells and alignment by place.
@@ -101,16 +174,6 @@ Column {
         return r < root.block.rows.length && c < root.block.rows[r].length ? root.block.rows[r][c] : ""
     }
     function colWidth(col) {
-        // Count and implicitWidth notify when a measurer arrives and lays out; itemAt alone notifies nothing.
-        if (measurers.count <= col)
-            return 0
-        var measured = measurers.itemAt(col)
-        return (measured ? measured.implicitWidth : 0) + 14
-    }
-    function tableWidth() {
-        var total = 0
-        for (var c = 0; c < root.columns; c++)
-            total += root.colWidth(c)
-        return total
+        return col < root.widths.length ? root.widths[col] : 0
     }
 }
