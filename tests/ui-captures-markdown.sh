@@ -347,15 +347,19 @@ capmarkdownkinds_open() {
 }
 # Wheel runs a document gets to reach its end: a 500-row table takes several, so forty only stop a view that never ends.
 capmarkdownkinds_end_runs=40
-# Wheels down a run at a time until the last block and its inset are in view (previewEndGap within the slack), failing by name if never.
+# Wheels down a run at a time until the end gap is within the slack or the view stops, where capmarkdown_end_fit names a cut last block.
 capmarkdownkinds_reach_end() {
-    local name="$1" run gap
-    for ((run = 0; ; run++)); do
+    local name="$1" run gap before
+    capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
+    for ((run = 1; ; run++)); do
         gap="$(ipc previewEndGap)"
         [[ "$gap" =~ ^-?[0-9]+$ ]] || fail "capmarkdownkinds: previewEndGap answered [$gap] for $name while wheeling to its end"
         (( gap >= 0 && gap <= capmarkdown_end_slack_px )) && return 0
         (( run < capmarkdownkinds_end_runs )) || break
-        capmarkdown_scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))"
+        before="$(ipc previewScrollY)"
+        omarchy-drive scroll down "$((capmarkdown_notches_mid + capmarkdown_notches_end))" >/dev/null || fail "capmarkdown: scroll down failed on $name"
+        settle
+        [[ "$(ipc previewScrollY)" != "$before" ]] || return 0
     done
     fail "capmarkdownkinds: $name never reached its end after $capmarkdownkinds_end_runs wheel runs"
 }
