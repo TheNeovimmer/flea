@@ -54,7 +54,7 @@ function textOf(row) {
     return firstText === null || !firstText.visible ? null : { text: firstText, parts: true }
 }
 
-// Blank when every drawn list row's marker shares its item text's first baseline, else the first row that does not.
+// Blank when every list row's marker is placed on its item text's drawnBaseline, else the first row that is not; whether drawnBaseline is where the glyphs draw is judged by ink in markdown-picture-lines.py.
 function markerBaselineError(root, frame, name) {
     var rows = Tables.all(root, "listRow")
     var judged = 0
