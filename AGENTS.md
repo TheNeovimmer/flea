@@ -569,8 +569,8 @@ as it builds.
 **Quick Look on a Markdown file shows its content in the first frame (038-qlopen, 2026-10-04).** Space's own open has
 no hold, so the card and the document's first blocks must land in one event-loop turn or the card draws empty first.
 Three parts, each measured headless (offscreen, software, warm QML disk cache, medians of n=10 processes, key to the
-first frame that holds block 0; the clock is `Date.now()`, 1 ms). (a) `Preview.show()` names the file the open is for in `inlineMarkdownPath`, only when `Prepared.readsInline(row, class)`
-holds: a regular file (`st_mode` in the row's `p`, so a FIFO, socket or device named `*.md` never), listed size 1 to
+first frame that holds block 0; the clock is `Date.now()`, 1 ms). (a) `Preview.show()` names the file the open is for in `inlineMarkdownPath`, only when `Prepared.readsInline(row, class, known)`
+holds: the folder's class has landed (`storageKnown`, reset to false by `ui/js/Nav.js` on every new path, so a hop from a local folder to a share never spends the old class), a regular file (`st_mode` in the row's `p`, so a FIFO, socket or device named `*.md` never), listed size 1 to
 64 KiB, on a class with no `ExtThumbs` entry (cifs, nfs and listed FUSE shares classify `network` in `extclass.rs`).
 `ui/PreviewMarkdown.qml` takes it as `blockPath`, and `pointFile()` points the `FileView` in one step: blocking only for
 a path equal to `blockPath`, and never reading a path other than `blockPath` while one is set (a pane built at kind-set
@@ -594,7 +594,7 @@ size is stale reads the whole file blocking (`FileView` cannot cap), a symlink t
 and a FUSE type outside the `extclass.rs` list classifies local.
 `tests/quicklook-firstframe.sh` pins it: the key's function returns with the card active and the blocks in the model
 (before the fix: card=true and 0 blocks), frame 1 holds block 0, no frame draws the card without it, the parse was taken
-from the entry, and a held key (twenty moves at 30 ms across event-loop turns, a 300 ms rest) reads no file, red with `rest.start()` for `rest.restart()`. Legs: reduced, motion, order, class-network, class-phone, class-usb, capped, pipe.
+from the entry, and a held key (twenty moves at 30 ms across event-loop turns, a 300 ms rest) reads no file, red with `rest.start()` for `rest.restart()`. Legs: reduced, motion, order, class-network, class-phone, class-usb, unknown (the class reply held back: no read at rest or inside the key), pipe (a FIFO listed at 900 bytes, refused only by its file type; a `head` child left on it fails the suite), capped.
 
 `columnReady` waits for LOADING never, an image for its cache file, or with none coming the original
 `frameThumb` decodes itself, drawn or refused (Ready or Error), a video for its poster or none coming,
