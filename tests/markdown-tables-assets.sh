@@ -1,6 +1,4 @@
-# Sourced by markdown-tables.sh and ui-captures-markdown.sh so both render the same assets: a 12 px dot, a 160 by 40 picture, a 400 by 40 one wider than the narrow column, 500 rows of three cells.
-# Where the sideways wheel of the native capture points, in px below the top of the document view: the middle of the first body row of overflow.md at text size 14, which tests/markdown-tables.qml proves.
-markdown_tables_aim_px=123
+# Sourced by markdown-tables.sh and ui-captures-markdown.sh so both render the same assets: a 12 px dot, a 160 by 40 picture, a 400 by 40 one wider than the narrow column, 500 rows of three cells, and 60 rows of 12 long words that chunk and overflow.
 markdown_tables_assets_write() {
     python3 - "$1" <<'PY' || return 1
 import struct, sys, zlib
@@ -16,5 +14,10 @@ solid(root + '/wide.png', 160, 40)
 solid(root + '/huge.png', 400, 40)
 rows = ''.join('| row %d | a plain cell number %d | %d |\n' % (i, i, i * 7) for i in range(500))
 open(root + '/rows500.md', 'w').write('# Rows\n\n| Name | Cell | Number |\n| --- | --- | ---: |\n' + rows)
+# Sixty rows is three chunks of the table, and twelve long whole words a row overflow both panes.
+words = ['Categorization', 'Initialization', 'Configuration', 'Authentication', 'Synchronization', 'Normalization', 'Serialization', 'Optimization', 'Customization', 'Virtualization', 'Orchestration', 'Documentation']
+wide = '| ' + ' | '.join(words) + ' |\n| ' + ' | '.join(['---'] * len(words)) + ' |\n'
+wide += ''.join('| ' + ' | '.join('%s%d' % (w[:6].lower(), i) for w in words) + ' |\n' for i in range(60))
+open(root + '/chunkwide.md', 'w').write('# Chunked\n\n' + wide)
 PY
 }

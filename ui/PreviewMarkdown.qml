@@ -137,6 +137,8 @@ Item {
     readonly property Item bodyItem: body
     // The route a sideways stroke takes to a table wider than the document, which each such table joins.
     readonly property Item tableWheel: tableRoute
+    // The first table drawn wider than the document, which Quick Look's IPC reads for the sideways capture.
+    function tableScroller() { return tableRoute.scrollers.length > 0 ? tableRoute.scrollers[0] : null }
     // The offset the wheel moved, in whichever view shows, for Quick Look's IPC.
     readonly property real scrollY: root.shownView === Markdown.SOURCE ? sourceList.contentY : body.contentY
     // The render suite reads live delegate geometry; only visible blocks plus the cache exist, so offscreen blocks answer null.

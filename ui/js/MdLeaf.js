@@ -220,15 +220,20 @@ function tableBlock(head, aligns, rows, inlineOf) {
     return { type: "table", head: shownHead, aligns: aligns, rows: shownRows, cols: cols, measure: measure, pictures: pictures, weights: weights, words: words }
 }
 
+// The tables chunked so far, which numbers each one's chunks.
+var chunkedTables = 0
+
 // Splits a long table into consecutive blocks: the header stays on the first, the rest are marked joined.
 function chunkTable(table) {
     if (table.rows.length <= TABLE_CHUNK_ROWS)
         return [table]
     var chunks = []
+    // Every chunk of one table carries its key and whether it is the last, so they scroll sideways as one and the last holds the bar's lane.
+    var key = ++chunkedTables
     for (var at = 0; at < table.rows.length; at += TABLE_CHUNK_ROWS)
         chunks.push({ type: "table", head: at === 0 ? table.head : [], aligns: table.aligns,
             rows: table.rows.slice(at, at + TABLE_CHUNK_ROWS), cols: table.cols, measure: table.measure, pictures: table.pictures,
-            weights: table.weights, words: table.words, joined: at > 0 })
+            weights: table.weights, words: table.words, joined: at > 0, tableKey: key, last: at + TABLE_CHUNK_ROWS >= table.rows.length })
     return chunks
 }
 

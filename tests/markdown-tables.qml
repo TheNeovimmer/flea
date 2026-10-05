@@ -1,9 +1,11 @@
 //@ pragma ShellId flea-markdown-tables-test
 
 import QtQuick
+import QtTest
 import Quickshell
 import "flea" as Flea
 import "markdown-tables.js" as Tables
+import "markdown-tables-scroll.js" as Sideways
 import "markdown-markers.js" as Markers
 
 // Every table case document, set in Quick Look's MarkdownPane and in the preview column's compact PreviewMarkdown at the board's text size 14, judged on geometry and grabbed.
@@ -21,10 +23,13 @@ ShellRoot {
     readonly property int cardWidth: 840
     readonly property int columnWidth: 250
     readonly property int paneHeight: 900
-    // Where the native capture points its sideways wheel, from tests/markdown-tables-assets.sh.
-    readonly property int aimPx: Number(Quickshell.env("FLEA_TABLES_AIM_PX"))
-    // The panes shrink to this for the wheel checks, so a document of one table is taller than the view and a vertical wheel has room to move it.
-    readonly property int wheelPaneHeight: 100
+    // The panes shrink to hold the wheel's point and this much below it, so the document is taller than the view and a vertical wheel has room to move it.
+    readonly property int wheelPaneMargin: 12
+    // The panes widen to this for the resize check, wide enough that most tables fit.
+    readonly property int wideFrame: 4000
+    // Tables that stopped overflowing in the widen check, which must be at least one.
+    property int drops: 0
+    property var scrollsBefore: [0, 0]
     // A case is quiet once both panes' content height held still this many frames.
     readonly property int quietFrames: 8
     // Frames a path change may take to drop the old document before the new one is awaited anyway.
@@ -64,6 +69,7 @@ ShellRoot {
         if (shell.done)
             return
         shell.done = true
+        shell.check(shell.drops > 0 ? "" : "no table stopped overflowing when its pane widened", "a widened pane drops a table's scroll")
         shell.log(shell.checks + " checks, " + shell.failures + " failed")
         shell.quit()
     }
@@ -72,6 +78,12 @@ ShellRoot {
         implicitWidth: shell.cardWidth + shell.columnWidth + 60
         implicitHeight: shell.paneHeight + 20
         color: "#101315"
+
+        // Real wheel events are sent through the window's own event path, to the item and point asked.
+        Item {
+            anchors.fill: parent
+            TestEvent { id: driver }
+        }
 
         Rectangle {
             id: cardFrame
@@ -167,10 +179,31 @@ ShellRoot {
             shell.check(Tables.lineError(name, label, geos), name + " " + label + " draws its lines")
         var body = pane.bodyItem
         var tables = Tables.all(body.contentItem, "tableGrid")
-        if (name === "overflow" && label === "card")
-            shell.check(Tables.aimError(tables[0], body, shell.aimPx), name + " " + label + " capture wheel lands on the first body row")
-        shell.check(Tables.scrollError(tables, Tables.all(body.contentItem, "tableScroll"), Tables.barsIn(body.contentItem), body.width), name + " " + label + " builds a sideways scroll only for a table that overflows")
+        shell.check(Sideways.scrollError(tables, Tables.all(body.contentItem, "tableScroll"), Sideways.barsIn(body.contentItem)), name + " " + label + " builds a sideways scroll only for a table that overflows")
         shell.check(Markers.markerBaselineError(pane.bodyItem.contentItem, frame, name), name + " " + label + " marker is placed on its item text's drawnBaseline")
+    }
+
+    function sendWheel(item, x, y, angleX, angleY, modifiers) {
+        driver.mouseWheel(item, x, y, Qt.NoButton, modifiers, angleX, angleY, 1)
+    }
+
+    // The height a pane shrinks to for the wheel checks: past its first overflowing table's wheel point by the margin, 0 when it has none.
+    function wheelHeight(pane) {
+        var scrollers = Tables.all(pane.bodyItem.contentItem, "tableScroll")
+        if (scrollers.length === 0)
+            return 0
+        var body = pane.bodyItem
+        var at = scrollers[0].mapToItem(body, scrollers[0].width / 2, Sideways.WHEEL_ROW_PX)
+        return Math.ceil(pane.height - body.height + at.y) + shell.wheelPaneMargin
+    }
+
+    // The chunks of one table, at full height, share one position whichever is wheeled.
+    function judgeChunks(name, pane, label) {
+        var body = pane.bodyItem
+        // The chunked wide case must build its chunks, so it never skips; any other case checks only when it chunked an overflowing table.
+        if (name !== "chunkwide" && Tables.all(body.contentItem, "tableGrid").filter(function (t) { return t.overflows && t.block.tableKey !== undefined }).length === 0)
+            return
+        shell.check(Sideways.chunkError(Tables.all(body.contentItem, "tableGrid"), pane.tableWheel, shell.sendWheel), name + " " + label + " chunks of one table scroll sideways as one")
     }
 
     // The wheel checks of a pane's first overflowing table; the pane is short, so the document has room to move under a vertical wheel.
@@ -179,14 +212,31 @@ ShellRoot {
         var scrollers = Tables.all(body.contentItem, "tableScroll")
         if (scrollers.length === 0)
             return
-        // The document's own handler sits on the pane; the scroll bar's handlers sit on the bars.
-        var handlers = Tables.all(pane, "fleaScroll").filter(function (h) { return h.flickable === body && h.parent.knobItem === undefined })
         var tops = body.contentY
-        var error = handlers.length === 1 ? Tables.wheelError(pane.tableWheel, scrollers[0], body, handlers[0]) : "the document has " + handlers.length + " wheel handlers"
-        shell.check(error, name + " " + label + " scrolls sideways under a wheel and leaves a vertical one to the document")
+        shell.check(Sideways.wheelError(pane.tableWheel, scrollers[0], body, shell.sendWheel), name + " " + label + " scrolls sideways under a real wheel and leaves a vertical one to the document")
+        if (name === "extreme" && label === "column") {
+            var errors = Sideways.touchErrors(pane.tableWheel, scrollers[0])
+            var names = ["Begin reaches the table and the document", "the first update locks the stroke to the table", "a vertical stroke stays with the document", "End releases the stroke"]
+            for (var n = 0; n < names.length; n++)
+                shell.check(errors[n], name + " " + label + " touchpad: " + names[n])
+        }
         for (var i = 0; i < scrollers.length; i++)
             scrollers[i].contentX = 0
         body.contentY = tops
+    }
+
+    // After the panes widen, a table that now fits has dropped its flickable, bar and router entry, and one that still overflows keeps one of each.
+    function judgeWiden(name, pane, label, before) {
+        var body = pane.bodyItem
+        var tables = Tables.all(body.contentItem, "tableGrid")
+        var scrollers = Tables.all(body.contentItem, "tableScroll")
+        var error = Sideways.scrollError(tables, scrollers, Sideways.barsIn(body.contentItem))
+        if (error === "" && pane.tableWheel.scrollers.filter(function (s) { return s }).length !== scrollers.length)
+            error = "the router holds " + pane.tableWheel.scrollers.filter(function (s) { return s }).length + " scrollers for " + scrollers.length + " flickables"
+        shell.check(error, name + " " + label + " drops its scroll when it stops overflowing")
+        if (before > scrollers.length)
+            shell.drops++
+        return scrollers.length
     }
 
     function shotHeight(pane, bar) {
@@ -249,19 +299,40 @@ ShellRoot {
                 if (shell.pending.length === 0) {
                     shell.cardShot = shell.paneHeight
                     shell.columnShot = shell.paneHeight
-                    // A case with a table that scrolls shrinks its panes only after its rest shots are saved, so the wheel never shows in a grab.
-                    var scrolls = Tables.all(card.bodyItem.contentItem, "tableScroll").length + Tables.all(column.bodyItem.contentItem, "tableScroll").length
-                    card.height = scrolls > 0 ? shell.wheelPaneHeight : shell.paneHeight
-                    column.height = scrolls > 0 ? shell.wheelPaneHeight : shell.paneHeight
-                    shell.stage = scrolls > 0 ? "wheel" : "next"
+                    // A case with a table that scrolls is checked only after its rest shots are saved, so the wheel never shows in a grab.
+                    var gName = shell.cases[shell.at]
+                    shell.judgeChunks(gName, card, "card")
+                    shell.judgeChunks(gName, column, "column")
+                    var cardShort = shell.wheelHeight(card)
+                    var columnShort = shell.wheelHeight(column)
+                    shell.scrollsBefore = [Tables.all(card.bodyItem.contentItem, "tableScroll").length, Tables.all(column.bodyItem.contentItem, "tableScroll").length]
+                    if (cardShort > 0 || columnShort > 0) {
+                        card.height = cardShort > 0 ? cardShort : shell.paneHeight
+                        column.height = columnShort > 0 ? columnShort : shell.paneHeight
+                        shell.stage = "wheel"
+                    } else {
+                        shell.stage = "next"
+                    }
                 }
             } else if (shell.stage === "wheel") {
                 // A frame after the shrink, so the lists have laid out their short views.
-                var shortName = shell.cases[shell.at]
-                shell.judgeWheel(shortName, card, "card")
-                shell.judgeWheel(shortName, column, "column")
+                var wName = shell.cases[shell.at]
+                shell.judgeWheel(wName, card, "card")
+                shell.judgeWheel(wName, column, "column")
                 card.height = shell.paneHeight
                 column.height = shell.paneHeight
+                cardFrame.width = shell.wideFrame
+                columnFrame.width = shell.wideFrame
+                shell.stage = "widening"
+            } else if (shell.stage === "widening") {
+                // A destroy lands on the event loop after the frame that asked for it, so the judge waits one more.
+                shell.stage = "widen"
+            } else if (shell.stage === "widen") {
+                var dName = shell.cases[shell.at]
+                shell.judgeWiden(dName, card, "card", shell.scrollsBefore[0])
+                shell.judgeWiden(dName, column, "column", shell.scrollsBefore[1])
+                cardFrame.width = Qt.binding(function () { return shell.cardWidth })
+                columnFrame.width = Qt.binding(function () { return shell.columnWidth })
                 shell.stage = "next"
             } else if (shell.stage === "end") {
                 shell.finish()

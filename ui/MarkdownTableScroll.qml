@@ -1,5 +1,6 @@
 import QtQuick
 import "." as Flea
+import "js/Scroll.js" as Scroll
 
 // The sideways scroll of a table wider than its block: the position and extent the table's rows slide by, the bar under the table, and the wheel's arithmetic.
 Flickable {
@@ -8,10 +9,13 @@ Flickable {
 
     required property Item table
 
-    // A sibling of the table in the block, laid over it: the table's own Column would stack it as a row.
-    parent: root.table.parent
-    x: root.table.x
-    y: root.table.y
+    // A sibling of the table in the block, laid over it. A positioner would stack it as a row, so under one it takes the positioner's parent and offset.
+    readonly property Item flow: root.table.parent !== null && root.table.parent.move !== undefined ? root.table.parent : null
+    // The key every chunk of one table shares, undefined for a table in one piece.
+    readonly property var group: root.table.block.tableKey
+    parent: root.flow !== null ? root.flow.parent : root.table.parent
+    x: root.table.x + (root.flow !== null ? root.flow.x : 0)
+    y: root.table.y + (root.flow !== null ? root.flow.y : 0)
     z: 1
     width: root.table.width
     height: root.table.height
@@ -19,6 +23,8 @@ Flickable {
     contentHeight: root.height
     // Only the wheel and the bar move it: a disabled item takes none of the presses the table's links and cells need.
     enabled: false
+    // The chunks of one table follow one position, whichever of them the wheel is over.
+    onContentXChanged: if (root.route !== null) root.route.follow(root)
     onWidthChanged: root.returnToBounds()
     onContentWidthChanged: root.returnToBounds()
 
@@ -48,6 +54,8 @@ Flickable {
     // The bar draws under the table, in the lane the table reserved; the lane shows it only while moving, hovered or dragged.
     Flea.ViewportScrollBar {
         parent: root.parent
+        // Only the last chunk of a table holds the lane, so a joined chunk stays flush under the one above.
+        visible: root.table.lane && root.contentWidth - root.width > Scroll.OVERFLOW_PX
         x: root.x
         y: root.y + root.height - height
         flickable: root

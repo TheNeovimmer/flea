@@ -102,6 +102,12 @@ QtObject {
     function previewCloseState(): string { return root.look.markdownCloseState() }
     function previewEndGap(): int { return root.look.markdownEndGap() }
     function previewScrollY(): int { return root.look.markdownScrollY() }
+    // The sideways table of the open Markdown: its scroll position, the rect it draws in and its first body row's, or {} when none overflows.
+    function previewTable(): string {
+        var m = root.look.markdownItem
+        var s = m ? m.tableScroller() : null
+        return JSON.stringify(s ? { scrollX: Math.round(s.contentX), view: root.fleaWindow.rectOf(s), row: root.fleaWindow.rectOf(s.table.firstRow()) } : {})
+    }
     // Length is in UTF-16 code units; the sweep's ASCII fixture has the same byte count.
     function previewTextLength(): int { return root.look.textShown().length }
     // Keep the reply bounded even if a caller asks for the entire file, including zero and negative counts.

@@ -33,10 +33,13 @@ capmarkdown_pointer() {
         read -r px py <<< "$(ipc previewCloseState | jq -r '.centre // empty' 2>/dev/null)"
         [[ -n "${py:-}" ]] || fail "capmarkdown: the close button never reported its centre"
     elif [[ "$where" == table ]]; then
-        # The aim is the middle of overflow.md's first body row, which tests/markdown-tables.qml checks against the laid-out row.
-        read -r sx sy sw sh <<< "$(ipc previewSurfaceRect)"
-        [[ -n "${sh:-}" ]] || fail "capmarkdown: the Quick Look surface never reported its rect"
-        px=$((sx + sw / 2)); py=$((sy + markdown_tables_aim_px))
+        # The table's own rects over IPC: the middle of its drawn width, on the middle of its first body row.
+        local view row _a _b rw rh rx ry
+        view="$(ipc previewTable | jq -r '.view // empty')"; row="$(ipc previewTable | jq -r '.row // empty')"
+        [[ -n "$view" && -n "$row" ]] || fail "capmarkdown: no table reported its rects over IPC"
+        read -r sx _a sw _b <<< "$view"
+        read -r rx ry rw rh <<< "$row"
+        px=$((sx + sw / 2)); py=$((ry + rh / 2))
     else
         read -r sx sy sw sh <<< "$(ipc previewSurfaceRect)"
         [[ -n "${sh:-}" ]] || fail "capmarkdown: the Quick Look surface never reported its rect"
@@ -384,16 +387,16 @@ capmarkdownkinds_reach_end() {
     done
     fail "capmarkdownkinds: $name never reached its end after $capmarkdownkinds_end_runs wheel runs"
 }
-# overflow.md: 24 columns of long whole words, wider than Quick Look's card at any text size. A wheel to the right over its first body row scrolls the table, so the shots differ.
-# A failure is kept in capmarkdown_sideways_error and the step returns 1, so the remaining shots still happen.
+# overflow.md's 24 long words run past the card: a wheel right over its first body row must grow the table's own scroll position, read over IPC.
 capmarkdown_table_sideways() {
-    local name="$1" rest="$evidence_dir/cap-markdown-kind-${1%.md}.png" moved="$evidence_dir/cap-markdown-kind-${1%.md}-sideways.png"
+    local name="$1" before after
     capmarkdown_pointer table
+    before="$(ipc previewTable | jq -r '.scrollX // -1')"
     omarchy-drive scroll right "$capmarkdown_notches_side" >/dev/null || { capmarkdown_sideways_error="scroll right $capmarkdown_notches_side failed on $name"; return 1; }
     settle
     shot "cap-markdown-kind-${name%.md}-sideways"
-    [[ -s "$moved" ]] || { capmarkdown_sideways_error="the sideways shot for $name is missing"; return 1; }
-    ! cmp -s "$rest" "$moved" || { capmarkdown_sideways_error="the sideways wheel left $name's table where it was, the two shots are identical"; return 1; }
+    after="$(ipc previewTable | jq -r '.scrollX // -1')"
+    (( after > before )) || { capmarkdown_sideways_error="the sideways wheel left $name's table at scrollX $before, now $after"; return 1; }
 }
 # Shoots the open document, then its tail when it is taller than the card, then closes Quick Look.
 # Sample input: previewEndGap answers 0 when the last block and its inset are whole at the top, so nothing scrolls; any other number, -1 included, means the document runs past the card.

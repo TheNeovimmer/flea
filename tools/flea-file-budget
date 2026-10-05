@@ -98,7 +98,7 @@ ui/ColumnsArea.qml 491
 ui/ContextMenu.qml 739
 ui/ConvertDialog.qml 435
 ui/GridArea.qml 420
-ui/Ipc.qml 882
+ui/Ipc.qml 883
 ui/KeymapSheet.qml 549
 ui/List.qml 437
 tests/touchpad-edge.qml 438
@@ -116,7 +116,7 @@ ui/PickerWindow.qml 779
 ui/Preview.qml 669
 ui/PreviewColumn.qml 583
 ui/DeviceMounts.qml 496
-ui/PreviewMarkdown.qml 568
+ui/PreviewMarkdown.qml 570
 ui/Row.qml 482
 ui/SettingsPanel.qml 543
 ui/SettingsRow.qml 409
@@ -134,7 +134,7 @@ ui/js/Keymap.js 355
 ui/js/Nav.js 308
 ui/js/Markdown.js 155
 ui/js/MdBlocks.js 380
-ui/js/MdLeaf.js 309
+ui/js/MdLeaf.js 314
 ui/js/MdInline.js 295
 ui/js/Menu.js 454
 ui/js/Drag.js 342

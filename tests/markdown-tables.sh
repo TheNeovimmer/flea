@@ -18,7 +18,7 @@ chmod 700 "$test_root/runtime" || exit 1
 ln -s "$PWD/ui" "$test_root/config/flea" || exit 1
 ln -s "$(readlink -f ui/boot/Commons)" "$test_root/config/Commons" || exit 1
 ln -s "$(readlink -f ui/boot/Ui)" "$test_root/config/Ui" || exit 1
-cp tests/markdown-tables.js tests/markdown-markers.js "$test_root/config/" || exit 1
+cp tests/markdown-tables.js tests/markdown-tables-scroll.js tests/markdown-markers.js "$test_root/config/" || exit 1
 cp tests/markdown-tables.qml "$test_root/config/shell.qml" || exit 1
 cp tests/fixtures/markdown-tables/*.md tests/fixtures/markdown-picline/*.md "$test_root/docs/" || exit 1
 . "$(dirname "$0")/markdown-tables-assets.sh" || exit 1
@@ -30,10 +30,10 @@ for doc in picturewide picfirst picsecond piclist picquote picwide picwidelist p
     sed 's#\(wide\|huge\)\.png#dot.png#' "$test_root/docs/$doc.md" > "$test_root/docs/$doc-dot.md" || exit 1
 done
 
-cases=wide,mid,extreme,overflow,sentence,path,br,inline,align,ragged,headonly,nested,cjk,adjacent,picturewide,picturewide-dot,picfirst,picfirst-dot,picsecond,picsecond-dot,piclist,piclist-dot,picquote,picquote-dot,picwide,picwide-dot,picwidelist,picwidelist-dot,picordered,picordered-dot,picparts,picparts-dot,rows500
+cases=wide,mid,extreme,overflow,chunkwide,nestedwide,sentence,path,br,inline,align,ragged,headonly,nested,cjk,adjacent,picturewide,picturewide-dot,picfirst,picfirst-dot,picsecond,picsecond-dot,piclist,piclist-dot,picquote,picquote-dot,picwide,picwide-dot,picwidelist,picwidelist-dot,picordered,picordered-dot,picparts,picparts-dot,rows500
 output=$( ( env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$test_root/home" XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" \
-    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_TABLES_DIR="$test_root/docs" FLEA_TABLES_CASES="$cases" FLEA_TABLES_AIM_PX="$markdown_tables_aim_px" \
+    XDG_RUNTIME_DIR="$test_root/runtime" FLEA_TABLES_DIR="$test_root/docs" FLEA_TABLES_CASES="$cases" \
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=generic QT_QUICK_BACKEND=software QT_QPA_UPDATE_IDLE_TIME=1 QT_FORCE_STDERR_LOGGING=1 \
     timeout 150 qs -p "$test_root/config" 2>&1 ) 2>/dev/null )
 

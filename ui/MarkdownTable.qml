@@ -17,17 +17,22 @@ Column {
     readonly property int bodyPx: root.preview.bodyPx
     // A chunk after the first sits flush under its predecessor, across the gap the list puts between blocks.
     y: root.block.joined === true ? -root.preview.blockGap : 0
-    // A table wider than its block clips to the block and scrolls sideways; the bar's lane is reserved under it, and under no other table.
+    // A table wider than its block clips to the block and scrolls sideways; the bar's lane is reserved under it, once under a chunked table's last chunk, and under no fitting table.
     width: root.overflows ? root.availableWidth : root.tableWidth
     clip: root.overflows
-    bottomPadding: root.overflows ? Theme.spacing.rowPaddingX : 0
+    readonly property bool lane: root.overflows && root.block.last !== false
+    bottomPadding: root.lane ? Theme.spacing.rowPaddingX : 0
     spacing: 0
 
-    // The sideways scroll, built the first time the table overflows: a table that fits owns no object for it, which the block cost gates count.
+    // The sideways scroll, built when the table overflows and dropped when it stops: a table that fits owns no object for it, which the block cost gates count.
     property Item scroller: null
     function syncScroller() {
-        if (root.scroller === null && root.overflows)
+        if (root.scroller === null && root.overflows) {
             root.scroller = Qt.createComponent("MarkdownTableScroll.qml").createObject(root, { table: root })
+        } else if (root.scroller !== null && !root.overflows) {
+            root.scroller.destroy()
+            root.scroller = null
+        }
     }
     onOverflowsChanged: root.syncScroller()
     Component.onCompleted: root.syncScroller()
@@ -64,6 +69,7 @@ Column {
     }
 
     Repeater {
+        id: bodyRows
         model: root.block.rows.length
         delegate: Column {
             readonly property int row: index
@@ -190,6 +196,9 @@ Column {
     }
     // Wider than its block once every column holds its longest word whole; the block's width then bounds the table.
     readonly property bool overflows: root.availableWidth > 0 && root.tableWidth - root.availableWidth > Scroll.OVERFLOW_PX
+
+    // The first body row, which the capture's IPC aims its wheel at.
+    function firstRow() { return bodyRows.itemAt(0) }
 
     // Helpers over the block, so delegates read cells and alignment by place.
     readonly property int columns: Math.max(1, root.block.cols)

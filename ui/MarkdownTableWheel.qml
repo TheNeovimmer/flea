@@ -11,6 +11,8 @@ MouseArea {
     // The table a touchpad stroke went to until it ends, and whether the stroke went to the document instead.
     property var held: null
     property bool documentStroke: false
+    // The sideways position each chunked table was last left at, by key, so a chunk built later joins it.
+    property var positions: ({})
 
     anchors.fill: parent
     // A press is never taken: the table's links and the document's own handler need them.
@@ -20,6 +22,20 @@ MouseArea {
 
     function add(scroller) {
         root.scrollers = root.scrollers.concat([scroller])
+        if (scroller.group !== undefined && root.positions[scroller.group] !== undefined)
+            scroller.contentX = root.positions[scroller.group]
+    }
+
+    // The other chunks of this scroller's table move to its position.
+    function follow(scroller) {
+        if (scroller.group === undefined)
+            return
+        root.positions[scroller.group] = scroller.contentX
+        for (var i = 0; i < root.scrollers.length; i++) {
+            var other = root.scrollers[i]
+            if (other && other !== scroller && other.group === scroller.group && other.contentX !== scroller.contentX)
+                other.contentX = scroller.contentX
+        }
     }
 
     function remove(scroller) {
