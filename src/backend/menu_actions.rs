@@ -393,7 +393,7 @@ mod tests {
             _ => panic!("a displaced snapshot is answered as Meta"),
         }
         let queued = menu.slot.take().expect("the newer snapshot must hold the slot");
-        assert_eq!(field_usize(&queued.0, "id"), Some(42), "the older snapshot must be displaced, not answered");
+        assert_eq!(field_usize(&queued.0, "id"), Some(42), "the older snapshot must be displaced and answered, never run");
         menu.slot.close();
         assert!(menu.slot.take().is_none());
     }
