@@ -24,7 +24,8 @@ const POLLOUT: i16 = 4;
 
 extern "C" {
     fn close(fd: c_int) -> c_int;
-    fn open(path: *const std::os::raw::c_char, flags: c_int) -> c_int;
+    // libc declares open variadic (the mode follows O_CREAT), and a newer rustc denies any other shape.
+    fn open(path: *const std::os::raw::c_char, flags: c_int, ...) -> c_int;
     fn dup2(old: c_int, new: c_int) -> c_int;
     fn poll(fds: *mut PollFd, nfds: usize, timeout: c_int) -> c_int;
     fn fcntl(fd: c_int, cmd: c_int, arg: c_int) -> c_int;
