@@ -57,4 +57,4 @@ Known issues
 
 Thanks to @akitaonrails, @shawnyeager, @muellan, @matt-shearing, @alextakitani, @johnkattenhorn, @avillagran, @herr-brandt, @AksharP5, @morgoth, @bcosta19, @markallisongit, @MISTERNEGATIVE21, @pomartel, @GreyforgeLabs, @dyedfox, @fsrodrig, @t1nk333r, @MiguelDebruyne and @nixfred.
 
-Source revision: 6668e4f4756ad77a0914100fbd7a5b9058025c6c (v0.3.8).
+Source revision: cafb37056e268f7fde86dc66f4b42107467759c1 (v0.3.8).
